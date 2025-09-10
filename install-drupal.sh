@@ -244,6 +244,7 @@ install_drupal_site() {
 enable_drupal_modules() {
     print_status "Enabling Drupal modules..."
     ddev drush en admin_toolbar config_split devel environment_indicator environment_indicator_ui environment_indicator_toolbar
+    ddev drush en token pathauto config_ignore better_exposed_filters key webprofiler diff ultimate_cron
     print_success "Drupal modules enabled"
 }
 
