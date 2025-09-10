@@ -199,6 +199,17 @@ init_drupal_project() {
     print_success "Drupal project '$PROJECT_NAME' initialized"
 }
 
+setup_drupal_settings() {
+    print_status "Setting up Drupal settings..."
+    # create config directory
+    mkdir -p config/sync
+    # change settings.ddev.php to use config/sync instead of 'sites/default/files/sync'
+    sed -i '' 's/sites\/default\/files\/sync/..\/config\/sync/' "web/sites/default/settings.ddev.php"
+    # copy ../config to web/sites/default/config/sync
+    cp -r ../config/ config/sync
+    print_success "Drupal settings setup completed"
+}
+
 # Function to install Drupal dependencies
 install_drupal_dependencies() {
     print_status "Installing Drupal dependencies with Composer..."
@@ -226,6 +237,20 @@ enable_drupal_modules() {
     print_status "Enabling Drupal modules..."
     ddev drush en admin_toolbar config_split devel environment_indicator environment_indicator_ui environment_indicator_toolbar
     print_success "Drupal modules enabled"
+}
+
+import_drupal_config() {
+    print_status "Importing Drupal config..."
+    import_path="config/sync"
+
+    # Check if config directory exists
+    if [ ! -d "$import_path" ]; then
+        print_warning "Config directory not found at $import_path. Skipping config import."
+        return 0
+    fi
+    
+    ddev drush config:import --partial --yes
+    print_success "Drupal config imported"
 }
 
 # Function to get site URL
@@ -295,8 +320,10 @@ main() {
     
     # Install Drupal
     install_drupal_dependencies
+    setup_drupal_settings
     install_drupal_site
     enable_drupal_modules
+    import_drupal_config
     
     # Get site URL and display instructions
     get_site_url

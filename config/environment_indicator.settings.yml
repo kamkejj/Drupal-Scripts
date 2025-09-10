@@ -1,0 +1,6 @@
+_core:
+  default_config_hash: RHFPAppLk6zO1dvgmh8B7KnqfC2cFwvZapHp4z8YWhs
+toolbar_integration: {  }
+favicon: true
+version_identifier: drupal_version
+version_identifier_fallback: environment_indicator_current_release
