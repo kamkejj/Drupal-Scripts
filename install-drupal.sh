@@ -216,9 +216,17 @@ install_drupal_dependencies() {
     ddev composer install
     ddev composer require drush/drush
     ddev composer require drupal/admin_toolbar
+    ddev composer require drupal/token
+    ddev composer require drupal/pathauto
+    ddev composer require drupal/config_ignore
     ddev composer require drupal/config_split
     ddev composer require drupal/devel
-    ddev composer require 'drupal/environment_indicator'
+    ddev composer require drupal/environment_indicator
+    ddev composer require drupal/better_exposed_filters
+    ddev composer require drupal/key
+    ddev composer require drupal/webprofiler
+    ddev composer require 'drupal/diff:^2.0@beta'
+    ddev composer require 'drupal/ultimate_cron:^2.0@beta'
     print_success "Drupal dependencies installed"
 }
 
