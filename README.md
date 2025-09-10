@@ -111,7 +111,7 @@ If you prefer to install manually:
 
 2. **Install Docker Desktop**:
    ```bash
-   brew install --cask docker
+   brew install docker
    ```
 
 3. **Install Colima**:
