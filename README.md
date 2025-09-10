@@ -17,14 +17,14 @@ This script automates the installation of Drupal 11 with all necessary prerequis
 5. **Creates Drupal project** - Prompts for project name and creates Drupal 11 project
 6. **Initializes DDEV project** - Sets up DDEV configuration for Drupal 11
 7. **Installs Drupal dependencies** - Runs `composer install` and installs essential modules
-8. **Installs Drupal site** - Creates a fresh Drupal 11 installation
+8. **Installs Drupal site** - Creates a fresh Drupal 11 installation in a directory specified when prompted by the script
 9. **Enables development modules** - Automatically enables admin_toolbar, config_split, and devel
 
 ## Usage
 
-1. **Navigate to your Drupal project directory:**
+1. **Navigate to the parent directory where your Drupal project will be:**
    ```bash
-   cd /path/to/your/drupal/project
+   cd /path/to/your/parent/directory
    ```
 
 2. **Run the installation script:**
