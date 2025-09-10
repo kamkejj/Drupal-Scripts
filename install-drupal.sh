@@ -39,7 +39,7 @@ command_exists() {
 check_homebrew() {
     if ! command_exists brew; then
         print_error "Homebrew is not installed. Please install Homebrew first:"
-        echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+        echo "See https://docs.brew.sh/Installation for instructions."
         exit 1
     fi
     print_success "Homebrew is installed"

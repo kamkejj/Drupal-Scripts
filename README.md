@@ -11,7 +11,7 @@ This script automates the installation of Drupal 11 with all necessary prerequis
 ## What the script does
 
 1. **Checks for Homebrew** - Ensures Homebrew is installed (required for other installations)
-2. **Installs Docker Desktop** - Uses Homebrew to install Docker Desktop
+2. **Installs Docker** - Uses Homebrew to install Docker
 3. **Installs Colima** - Alternative Docker runtime for macOS
 4. **Installs DDEV** - Drupal development environment
 5. **Creates Drupal project** - Prompts for project name and creates Drupal 11 project
@@ -104,7 +104,7 @@ The script creates a new directory with your project name and sets up Drupal ins
 
 If you prefer to install manually:
 
-1. **Install Homebrew** (if not already installed):
+1. **Install Homebrew** (if not already installed), see https://docs.brew.sh/Installation
    ```bash
    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
    ```
