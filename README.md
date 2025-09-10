@@ -1,6 +1,9 @@
-# Drupal 11 Installation Script
+# Drupal 11 Installation Script (MacOS)
 
 This script automates the installation of Drupal 11 with all necessary prerequisites on macOS, including essential development modules.
+
+Note: Place this script in a parent directory where the Drupal install will be. The script will prompt for a DDEV site name which will 
+also create a new directory where the Drupal site will be installed.
 
 ## Prerequisites
 
