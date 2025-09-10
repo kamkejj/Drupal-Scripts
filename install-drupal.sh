@@ -207,6 +207,7 @@ install_drupal_dependencies() {
     ddev composer require drupal/admin_toolbar
     ddev composer require drupal/config_split
     ddev composer require drupal/devel
+    ddev composer require 'drupal/environment_indicator'
     print_success "Drupal dependencies installed"
 }
 
@@ -223,7 +224,7 @@ install_drupal_site() {
 
 enable_drupal_modules() {
     print_status "Enabling Drupal modules..."
-    ddev drush en admin_toolbar config_split devel
+    ddev drush en admin_toolbar config_split devel environment_indicator environment_indicator_ui
     print_success "Drupal modules enabled"
 }
 
