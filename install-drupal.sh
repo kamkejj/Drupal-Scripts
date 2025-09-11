@@ -196,7 +196,7 @@ init_drupal_project() {
     
     print_status "Creating Drupal project: $PROJECT_NAME"
     composer create-project drupal/recommended-project:^11 "$PROJECT_NAME"
-    print_success "Drupal project '$PROJECT_NAME' initialized"
+    print_success "✓ Drupal project '$PROJECT_NAME' initialized"
 }
 
 setup_drupal_settings() {
@@ -206,8 +206,13 @@ setup_drupal_settings() {
     # change settings.ddev.php to use config/sync instead of 'sites/default/files/sync'
     sed -i '' 's/sites\/default\/files\/sync/..\/config\/sync/' "web/sites/default/settings.ddev.php"
     # copy ../config to web/sites/default/config/sync
-    cp -r ../config/ config/sync
-    print_success "Drupal settings setup completed"
+    cp -r ../Drupal-Scripts/config/ config/sync
+    # check that config/sync exists
+    if [ ! -d "config/sync" ]; then
+        print_error "Config directory not found at config/sync. Skipping config import."
+        exit 1
+    fi
+    print_success "✓ Drupal settings setup completed"
 }
 
 # Function to install Drupal dependencies
@@ -227,7 +232,7 @@ install_drupal_dependencies() {
     ddev composer require drupal/webprofiler
     ddev composer require 'drupal/diff:^2.0@beta'
     ddev composer require 'drupal/ultimate_cron:^2.0@beta'
-    print_success "Drupal dependencies installed"
+    print_success "✓ Drupal dependencies installed"
 }
 
 # Function to install Drupal site
@@ -243,9 +248,9 @@ install_drupal_site() {
 
 enable_drupal_modules() {
     print_status "Enabling Drupal modules..."
-    ddev drush en admin_toolbar config_split devel environment_indicator environment_indicator_ui environment_indicator_toolbar
-    ddev drush en token pathauto config_ignore better_exposed_filters key webprofiler diff ultimate_cron
-    print_success "Drupal modules enabled"
+    ddev drush en admin_toolbar config_split devel environment_indicator environment_indicator_ui environment_indicator_toolbar -y
+    ddev drush en token pathauto config_ignore better_exposed_filters key webprofiler diff ultimate_cron devel_generate -y
+    print_success "✓Drupal modules enabled"
 }
 
 import_drupal_config() {
@@ -259,7 +264,21 @@ import_drupal_config() {
     fi
     
     ddev drush config:import --partial --yes
-    print_success "Drupal config imported"
+    print_success "✓ Drupal config imported"
+}
+
+generate_drupal_content() {
+    # ask the user if they want to generate content
+    read -p "Do you want to generate content? (y/N): "
+    if [ "$GENERATE_CONTENT" != "y" ]; then
+        print_success "✓ Drupal content generation skipped"
+        return 0
+    fi
+
+    print_status "Generating Drupal content..."
+    ddev drush genu 10 --kill --roles=content_editor
+    ddev drush genc 25 -y --kill --roles=content_editor --skip-fields=field_tags
+    print_success "✓ Drupal content generated"
 }
 
 # Function to get site URL
@@ -333,6 +352,8 @@ main() {
     install_drupal_site
     enable_drupal_modules
     import_drupal_config
+    # Generate Drupal content if user wants to
+    generate_drupal_content
     
     # Get site URL and display instructions
     get_site_url
