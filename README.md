@@ -2,8 +2,16 @@
 
 This script automates the installation of Drupal 11 with all necessary prerequisites on macOS, including essential development modules.
 
-Note: Place this script in a parent directory where the Drupal install will be. The script will prompt for a DDEV site name which will 
-also create a new directory where the Drupal site will be installed.
+ ## Usage
+
+* Clone the repo into a parent directory where sites will be cloned (e.g. ~/Projects).
+* Run the installer from the Projects directory
+
+```bash
+$~/Projects > ./Drupal-Scripts/install-drupal.sh
+```
+
+**Note:** Changing directories is hard coded and running the script depends on executing from the correct directory.
 
 ## Prerequisites
 
