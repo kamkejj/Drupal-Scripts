@@ -268,7 +268,8 @@ import_drupal_config() {
 }
 
 generate_drupal_content() {
-    # ask the user if they want to generate content
+    # ask the user if they want to generate content, default to N
+    GENERATE_CONTENT="N"
     read -p "Do you want to generate content? (y/N): " GENERATE_CONTENT
     if [ "$GENERATE_CONTENT" != "y" ]; then
         print_success "✓ Drupal content generation skipped"
