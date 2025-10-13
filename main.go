@@ -117,6 +117,17 @@ func installColima() bool {
 	return false
 }
 
+func checkColimaRunning() bool {
+	cmd := exec.Command("colima", "status")
+	err := cmd.Run()
+	if err == nil {
+		printSuccess("Colima is running")
+		return true
+	}
+	printWarning("Colima is not running.")
+	return false
+}
+
 func startColima() {
 	printStatus("Starting Colima...")
 	cmd := exec.Command("colima", "status")
@@ -153,7 +164,7 @@ func checkDDEVVersion() {
 	}
 }
 
-func checkPrerequisites() {
+func checkPrerequisites(dockerProvider string) {
 	fmt.Println("==========================================")
 	printStatus("Checking Prerequisites")
 	fmt.Println("==========================================")
@@ -164,16 +175,18 @@ func checkPrerequisites() {
 		printError("✗ Homebrew is not installed")
 	}
 
-	if brewPackageInstalled("docker") {
-		printSuccess("✓ Docker Desktop is installed")
+	if dockerProvider == "docker" {
+		if brewPackageInstalled("docker") {
+			printSuccess("✓ Docker Desktop is installed")
+		} else {
+			printWarning("✗ Docker Desktop is not installed")
+		}
 	} else {
-		printWarning("✗ Docker Desktop is not installed")
-	}
-
-	if commandExists("colima") {
-		printSuccess("✓ Colima is installed")
-	} else {
-		printWarning("✗ Colima is not installed")
+		if commandExists("colima") {
+			printSuccess("✓ Colima is installed")
+		} else {
+			printWarning("✗ Colima is not installed")
+		}
 	}
 
 	if commandExists("ddev") {
@@ -486,13 +499,32 @@ func displayFinalInstructions(siteURL string) {
 	fmt.Println("For more information, visit: https://ddev.readthedocs.io/")
 }
 
+func selectDockerProvider() string {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Println("Which Docker provider would you like to use?")
+	fmt.Println("1. Docker Desktop")
+	fmt.Println("2. Colima")
+	fmt.Print("Enter your choice (1 or 2): ")
+
+	response, _ := reader.ReadString('\n')
+	response = strings.TrimSpace(response)
+
+	if response == "2" {
+		return "colima"
+	}
+	return "docker"
+}
+
 func main() {
 	fmt.Println("==========================================")
 	fmt.Println("Drupal 11 Installation Script")
 	fmt.Println("==========================================")
 	fmt.Println()
 
-	checkPrerequisites()
+	dockerProvider := selectDockerProvider()
+	fmt.Println()
+
+	checkPrerequisites(dockerProvider)
 
 	if err := checkHomebrew(); err != nil {
 		os.Exit(1)
@@ -500,9 +532,25 @@ func main() {
 
 	fmt.Println()
 
-	if !checkDockerRunning() {
-		printStatus("Docker is not running. Starting Colima as alternative...")
-		startColima()
+	if dockerProvider == "docker" {
+		installDocker()
+		if !checkDockerRunning() {
+			printError("Please start Docker Desktop and run this script again.")
+			os.Exit(1)
+		}
+	} else {
+		installColima()
+		if !checkColimaRunning() {
+			startColima()
+			if !checkColimaRunning() {
+				printError("Failed to start Colima. Please start it manually and run this script again.")
+				os.Exit(1)
+			}
+		}
+	}
+
+	if !installDDEV() {
+		os.Exit(1)
 	}
 
 	checkDDEVVersion()
