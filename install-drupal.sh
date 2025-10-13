@@ -219,6 +219,7 @@ setup_drupal_settings() {
 install_drupal_dependencies() {
     print_status "Installing Drupal dependencies with Composer..."
     ddev composer install
+    ddev composer require drupal/core-dev --dev -W
     ddev composer require drush/drush
     ddev composer require drupal/admin_toolbar
     ddev composer require drupal/token
@@ -240,7 +241,7 @@ install_drupal_site() {
     print_status "Installing Drupal site..."
     
     # Install Drupal with standard profile
-    ddev drush site:install standard --yes --account-name=admin --account-pass=admin --site-name="Drupal 11 Site"
+    ddev drush site:install standard --yes --account-name=admin --account-pass=admin --site-name="Super Awesome Site"
 
     print_success "Drupal site installed"
     print_status "Admin credentials: username=admin, password=admin"
