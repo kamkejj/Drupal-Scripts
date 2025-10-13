@@ -1,17 +1,57 @@
 # Drupal 11 Installation Script (MacOS)
 
-This script automates the installation of Drupal 11 with all necessary prerequisites on macOS, including essential development modules.
+This tool automates the installation of Drupal 11 with all necessary prerequisites on macOS, including essential development modules.
 
- ## Usage
+## Installation
 
-* Clone the repo into a parent directory where sites will be cloned (e.g. ~/Projects).
-* Run the installer from the Projects directory
+### Option 1: Add to PATH (Recommended)
+
+1. **Copy the binary to a location in your PATH:**
+   ```bash
+   sudo cp install-drupal /usr/local/bin/
+   sudo chmod +x /usr/local/bin/install-drupal
+   ```
+
+2. **Or create a symlink:**
+   ```bash
+   sudo ln -s /path/to/Drupal-Scripts/install-drupal /usr/local/bin/install-drupal
+   ```
+
+3. **Verify installation:**
+   ```bash
+   which install-drupal
+   ```
+
+Now you can run `install-drupal` from any directory.
+
+### Option 2: Run Directly
+
+Navigate to the parent directory where you want your Drupal project created and run:
 
 ```bash
-$~/Projects > ./Drupal-Scripts/install-drupal.sh
+/path/to/Drupal-Scripts/install-drupal
 ```
 
-**Note:** Changing directories is hard coded and running the script depends on executing from the correct directory.
+## Usage
+
+1. **Navigate to the parent directory where your Drupal project will be created:**
+   ```bash
+   cd ~/Projects
+   ```
+
+2. **Run the installer:**
+   ```bash
+   install-drupal
+   ```
+   
+   Or if not in PATH:
+   ```bash
+   /path/to/Drupal-Scripts/install-drupal
+   ```
+
+3. **Follow the prompts** - The script will guide you through the installation process
+
+**Note:** The tool will create the new Drupal project as a subdirectory of your current working directory.
 
 ## Prerequisites
 
@@ -19,31 +59,18 @@ $~/Projects > ./Drupal-Scripts/install-drupal.sh
 - Internet connection
 - Admin/sudo privileges (for Homebrew installations)
 
-## What the script does
+## What the installer does
 
 1. **Checks for Homebrew** - Ensures Homebrew is installed (required for other installations)
 2. **Installs Docker** - Uses Homebrew to install Docker
 3. **Installs Colima** - Alternative Docker runtime for macOS
 4. **Installs DDEV** - Drupal development environment
-5. **Creates Drupal project** - Prompts for project name and creates Drupal 11 project
+5. **Creates Drupal project** - Prompts for project name and creates Drupal 11 project in current directory
 6. **Initializes DDEV project** - Sets up DDEV configuration for Drupal 11
 7. **Installs Drupal dependencies** - Runs `composer install` and installs essential modules
-8. **Installs Drupal site** - Creates a fresh Drupal 11 installation in a directory specified when prompted by the script
-9. **Enables development modules** - Automatically enables admin_toolbar, config_split, and devel
-
-## Usage
-
-1. **Navigate to the parent directory where your Drupal project will be:**
-   ```bash
-   cd /path/to/your/parent/directory
-   ```
-
-2. **Run the installation script:**
-   ```bash
-   ./install-drupal.sh
-   ```
-
-3. **Follow the prompts** - The script will guide you through the installation process
+8. **Installs Drupal site** - Creates a fresh Drupal 11 installation
+9. **Enables development modules** - Automatically enables admin_toolbar, config_split, devel, and more
+10. **Imports configuration** - Imports environment indicator and other configs
 
 ## What gets installed
 
@@ -109,11 +136,25 @@ Make sure you have admin privileges for Homebrew installations.
 If you encounter port conflicts, DDEV will automatically find available ports.
 
 ### Project directory structure
-The script creates a new directory with your project name and sets up Drupal inside it. Make sure you're in the parent directory where you want the project folder to be created.
+The installer creates a new directory with your project name as a child of your current working directory. Make sure you're in the parent directory where you want the project folder to be created.
 
-## Manual Installation Steps
+### Binary location
+The Go binary embeds all configuration files, so you can place it anywhere on your system. For convenience, add it to your PATH (see Installation section above).
 
-If you prefer to install manually:
+## Building from Source
+
+If you want to build the binary yourself:
+
+```bash
+cd /path/to/Drupal-Scripts
+go build -o install-drupal
+```
+
+This will create the `install-drupal` binary in the current directory.
+
+## Manual Drupal Installation Steps
+
+If you prefer to install Drupal manually without using this tool:
 
 1. **Install Homebrew** (if not already installed), see https://docs.brew.sh/Installation
    ```bash
