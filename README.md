@@ -61,16 +61,20 @@ Navigate to the parent directory where you want your Drupal project created and 
 
 ## What the installer does
 
-1. **Checks for Homebrew** - Ensures Homebrew is installed (required for other installations)
-2. **Installs Docker** - Uses Homebrew to install Docker
-3. **Installs Colima** - Alternative Docker runtime for macOS
-4. **Installs DDEV** - Drupal development environment
-5. **Creates Drupal project** - Prompts for project name and creates Drupal 11 project in current directory
-6. **Initializes DDEV project** - Sets up DDEV configuration for Drupal 11
-7. **Installs Drupal dependencies** - Runs `composer install` and installs essential modules
-8. **Installs Drupal site** - Creates a fresh Drupal 11 installation
-9. **Enables development modules** - Automatically enables admin_toolbar, config_split, devel, and more
-10. **Imports configuration** - Imports environment indicator and other configs
+1. **Prompts for Docker provider** - Choose between Docker Desktop or Colima
+2. **Checks prerequisites** - Displays status of required tools based on your Docker provider choice
+3. **Checks for Homebrew** - Ensures Homebrew is installed (required for other installations)
+4. **Installs and starts Docker provider** - Installs and ensures your chosen provider (Docker Desktop or Colima) is running
+5. **Installs DDEV** - Drupal development environment
+6. **Creates Drupal project** - Prompts for project name and creates Drupal 11 project in current directory
+7. **Initializes DDEV project** - Sets up DDEV configuration for Drupal 11
+8. **Starts DDEV** - Launches the development environment
+9. **Installs Drupal dependencies** - Runs `composer install` and installs essential modules via DDEV
+10. **Configures Drupal settings** - Sets up config sync directory and environment indicator configs
+11. **Installs Drupal site** - Creates a fresh Drupal 11 installation with admin credentials
+12. **Enables development modules** - Automatically enables admin_toolbar, config_split, devel, and more
+13. **Imports configuration** - Imports environment indicator and other configs
+14. **Generates content (optional)** - Optionally generates sample users and content for testing
 
 ## What gets installed
 
@@ -86,7 +90,17 @@ Navigate to the parent directory where you want your Drupal project created and 
 - **Development modules automatically installed and enabled:**
   - **Admin Toolbar** - Enhanced admin interface
   - **Config Split** - Configuration management for different environments
+  - **Config Ignore** - Ignore specific configuration during imports
   - **Devel** - Development and debugging tools
+  - **Devel Generate** - Generate test content
+  - **Webprofiler** - Performance profiling
+  - **Environment Indicator** - Visual environment indicators
+  - **Token** - Token replacement system
+  - **Pathauto** - Automatic URL alias generation
+  - **Better Exposed Filters** - Enhanced Views filters
+  - **Key** - Key management system
+  - **Diff** - Configuration comparison tools
+  - **Ultimate Cron** - Advanced cron management
 
 ## After Installation
 
@@ -126,8 +140,13 @@ ddev logs
 
 ## Troubleshooting
 
+### Docker provider selection
+The script will prompt you to choose between Docker Desktop and Colima at startup. Choose the provider you prefer or that better suits your system resources.
+
 ### Docker not running
-If Docker Desktop isn't running, the script will automatically start Colima as an alternative.
+If your chosen Docker provider isn't running:
+- **Docker Desktop**: You'll be prompted to start it manually
+- **Colima**: The script will attempt to start it automatically
 
 ### Permission issues
 Make sure you have admin privileges for Homebrew installations.
