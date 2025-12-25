@@ -4,17 +4,31 @@ This tool automates the installation of Drupal 11 with all necessary prerequisit
 
 ## Installation
 
-### Option 1: Add to PATH (Recommended)
+### Option 1: Automated Installer (Recommended)
+
+The project now includes an automated installer script that handles the installation process:
+
+```bash
+# Run the installer script
+./install.sh
+
+# Or with custom options
+./install.sh --path ~/bin/install-drupal --add-to-path
+```
+
+Run `./install.sh --help` for all available options.
+
+### Option 2: Manual Installation
 
 1. **Copy the binary to a location in your PATH:**
    ```bash
-   sudo cp install-drupal /usr/local/bin/
+   sudo cp binary/macos/install-drupal /usr/local/bin/
    sudo chmod +x /usr/local/bin/install-drupal
    ```
 
 2. **Or create a symlink:**
    ```bash
-   sudo ln -s /path/to/Drupal-Scripts/install-drupal /usr/local/bin/install-drupal
+   sudo ln -s /path/to/Drupal-Scripts/binary/macos/install-drupal /usr/local/bin/install-drupal
    ```
 
 3. **Verify installation:**
@@ -24,12 +38,12 @@ This tool automates the installation of Drupal 11 with all necessary prerequisit
 
 Now you can run `install-drupal` from any directory.
 
-### Option 2: Run Directly
+### Option 3: Run Directly
 
 Navigate to the parent directory where you want your Drupal project created and run:
 
 ```bash
-/path/to/Drupal-Scripts/install-drupal
+/path/to/Drupal-Scripts/binary/macos/install-drupal
 ```
 
 ## Usage
@@ -170,6 +184,21 @@ go build -o install-drupal
 ```
 
 This will create the `install-drupal` binary in the current directory.
+
+### Using Makefile
+
+For easier building and installation, you can use the provided Makefile:
+
+```bash
+# Build the binary
+make build
+
+# Install the binary to /usr/local/bin
+make install
+
+# Show all available commands
+make help
+```
 
 ## Manual Drupal Installation Steps
 

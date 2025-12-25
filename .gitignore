@@ -1,0 +1,17 @@
+# Binaries
+install-drupal
+binary/
+
+# Go build artifacts
+*.out
+coverage.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
