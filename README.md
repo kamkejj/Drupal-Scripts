@@ -57,7 +57,11 @@ Navigate to the parent directory where you want your Drupal project created and 
    /path/to/Drupal-Scripts/binary/macos/dropkit install
    ```
 
-3. **Review the plan and confirm it** - The wizard uses the same inspected plan and safety checks as non-interactive callers
+3. **Complete the terminal wizard** - Choose a container runtime, name the project, and decide whether to generate sample content
+
+4. **Review and authorize the plan** - The full-screen TUI shows every planned step and the network, host, or destructive effects requiring approval before anything is changed
+
+The interactive installer is built with [Bubble Tea](https://github.com/charmbracelet/bubbletea). Use the arrow keys or `Tab` to move, `Enter` to continue, and `Esc` to cancel. During installation, the TUI displays live semantic step events from the same installation module used by automated callers.
 
 **Note:** The tool will create the new Drupal project as a subdirectory of your current working directory.
 

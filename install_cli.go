@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
@@ -176,49 +175,6 @@ func runVerifyCommand(ctx context.Context, module InstallationModule, args []str
 		return exitCodeForFailure(failureFromError(verifyErr))
 	}
 	return 0
-}
-
-func runInstallWizard(ctx context.Context, module InstallationModule, stdin io.Reader, stdout, stderr io.Writer) int {
-	reader := bufio.NewReader(stdin)
-	fmt.Fprintln(stdout, "Drupal 11 Installation")
-	provider := prompt(reader, stdout, "Docker provider (docker/colima): ")
-	name := prompt(reader, stdout, "Project name: ")
-	generate := strings.EqualFold(prompt(reader, stdout, "Generate sample content? (y/N): "), "y")
-	parent, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	plan, err := module.Plan(ctx, InstallationRequest{ProjectName: name, ParentDirectory: parent, DockerProvider: DockerProvider(provider), GenerateContent: generate, AdminUsername: "admin"})
-	if err != nil {
-		failure := failureFromError(err)
-		fmt.Fprintln(stderr, failure.Message)
-		return exitCodeForFailure(failure)
-	}
-	_ = writePlan(stdout, "human", plan)
-	if plan.Blocked {
-		return 3
-	}
-	if !strings.EqualFold(prompt(reader, stdout, "Apply this plan? (y/N): "), "y") {
-		fmt.Fprintln(stdout, "Installation cancelled")
-		return 0
-	}
-	allowed := map[Effect]bool{}
-	for _, effect := range plan.RequiredApprovals {
-		allowed[effect] = true
-	}
-	result, applyErr := module.Apply(ctx, plan, Approval{PlanDigest: plan.Digest, AllowedEffects: allowed}, humanEventSink{writer: stderr})
-	_ = writeResult(stdout, "human", result)
-	if applyErr != nil {
-		return exitCodeForFailure(failureFromError(applyErr))
-	}
-	return 0
-}
-
-func prompt(reader *bufio.Reader, writer io.Writer, message string) string {
-	fmt.Fprint(writer, message)
-	value, _ := reader.ReadString('\n')
-	return strings.TrimSpace(value)
 }
 
 func readerIsTerminal(reader io.Reader) bool {
