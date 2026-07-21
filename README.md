@@ -57,9 +57,57 @@ Navigate to the parent directory where you want your Drupal project created and 
    /path/to/Drupal-Scripts/binary/macos/dropkit install
    ```
 
-3. **Follow the prompts** - The script will guide you through the installation process
+3. **Review the plan and confirm it** - The wizard uses the same inspected plan and safety checks as non-interactive callers
 
 **Note:** The tool will create the new Drupal project as a subdirectory of your current working directory.
+
+## Agent and automation usage
+
+Dropkit provides a non-interactive plan, apply, and verify workflow. Planning inspects the host but does not install packages, start runtimes, create directories, or modify files.
+
+Create and review a machine-readable plan:
+
+```bash
+dropkit install plan \
+  --name my-drupal-site \
+  --parent "$PWD" \
+  --provider colima \
+  --admin-password-env DRUPAL_ADMIN_PASSWORD \
+  --output json > dropkit-plan.json
+```
+
+Apply the exact saved plan with explicit authorization for its effects:
+
+```bash
+export DRUPAL_ADMIN_PASSWORD='use-a-secret-value'
+
+dropkit install apply \
+  --plan dropkit-plan.json \
+  --allow-network \
+  --allow-host-changes \
+  --output json \
+  --events jsonl
+```
+
+Verify the resulting project without modifying it:
+
+```bash
+dropkit install verify \
+  --plan dropkit-plan.json \
+  --output json
+```
+
+In JSON mode, stdout contains one final JSON document. Progress and subprocess output are written to stderr; `--events jsonl` makes every stderr event machine-readable. A non-terminal `dropkit install` invocation never prompts and returns an error directing the caller to create a plan.
+
+Plans contain stable semantic step IDs, effect classifications, retry guidance, and a digest. They do not contain executable shell commands or password values. Applying a plan fails before mutation when required authorization is missing, the plan has been altered, or inspected host state has changed.
+
+Effect authorization flags are:
+
+- `--allow-network` for downloads
+- `--allow-host-changes` for host package installation and runtime changes
+- `--allow-destructive` for operations such as replacing generated sample content
+
+If a plan reports a blocker, resolve it and create a new plan. Docker Desktop must already be running; Colima can be started by an explicitly authorized plan.
 
 ## Prerequisites
 

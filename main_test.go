@@ -37,12 +37,12 @@ func TestRunCLI(t *testing.T) {
 		{
 			name:       "install help",
 			args:       []string{"install", "--help"},
-			stdoutText: "Usage: dropkit install",
+			stdoutText: "dropkit install plan",
 		},
 		{
 			name:       "help install",
 			args:       []string{"help", "install"},
-			stdoutText: "Usage: dropkit install",
+			stdoutText: "dropkit install apply",
 		},
 		{
 			name:       "unknown command",
@@ -57,10 +57,10 @@ func TestRunCLI(t *testing.T) {
 			stderrText: `unknown help topic "update"`,
 		},
 		{
-			name:       "install arguments",
+			name:       "unknown install command",
 			args:       []string{"install", "project-name"},
-			exitCode:   1,
-			stderrText: "install does not accept arguments",
+			exitCode:   2,
+			stderrText: `unknown install command "project-name"`,
 		},
 	}
 

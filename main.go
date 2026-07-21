@@ -36,12 +36,7 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 			printInstallUsage(stdout)
 			return 0
 		}
-		if len(args) > 1 {
-			fmt.Fprintln(stderr, "install does not accept arguments")
-			printInstallUsage(stderr)
-			return 1
-		}
-		return runInstall()
+		return runInstallCommand(args[1:], os.Stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n", args[0])
 		printUsage(stderr)
@@ -58,7 +53,23 @@ func printUsage(writer io.Writer) {
 }
 
 func printInstallUsage(writer io.Writer) {
-	fmt.Fprintln(writer, "Usage: dropkit install")
+	fmt.Fprintln(writer, "Usage:")
+	fmt.Fprintln(writer, "  dropkit install")
+	fmt.Fprintln(writer, "  dropkit install plan --name NAME --parent DIR --provider docker|colima [options]")
+	fmt.Fprintln(writer, "  dropkit install apply --plan FILE [approvals] [options]")
+	fmt.Fprintln(writer, "  dropkit install verify --plan FILE [options]")
 	fmt.Fprintln(writer)
-	fmt.Fprintln(writer, "Install a Drupal 11 development environment.")
+	fmt.Fprintln(writer, "Commands:")
+	fmt.Fprintln(writer, "  plan      Inspect the host and create a read-only installation plan")
+	fmt.Fprintln(writer, "  apply     Apply a saved plan with explicit effect approvals")
+	fmt.Fprintln(writer, "  verify    Verify a saved plan without modifying the host")
+	fmt.Fprintln(writer)
+	fmt.Fprintln(writer, "Approvals:")
+	fmt.Fprintln(writer, "  --allow-network       Allow downloads")
+	fmt.Fprintln(writer, "  --allow-host-changes  Allow host package and runtime changes")
+	fmt.Fprintln(writer, "  --allow-destructive   Allow destructive project operations")
+	fmt.Fprintln(writer)
+	fmt.Fprintln(writer, "Machine output:")
+	fmt.Fprintln(writer, "  --output json         Write one JSON document to stdout")
+	fmt.Fprintln(writer, "  --events jsonl        Stream JSON events to stderr")
 }
