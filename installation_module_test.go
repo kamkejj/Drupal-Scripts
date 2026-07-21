@@ -70,6 +70,25 @@ func approvePlan(plan InstallationPlan) Approval {
 	return Approval{PlanDigest: plan.Digest, AllowedEffects: allowed}
 }
 
+func findStep(t *testing.T, plan InstallationPlan, id string) InstallationStep {
+	t.Helper()
+	for _, step := range plan.Steps {
+		if step.ID == id {
+			return step
+		}
+	}
+	t.Fatalf("plan omitted step %q", id)
+	return InstallationStep{}
+}
+
+type recordingEventSink struct {
+	events []Event
+}
+
+func (sink *recordingEventSink) Emit(event Event) {
+	sink.events = append(sink.events, event)
+}
+
 func TestPlanIsReadOnlyAndMachineDescriptive(t *testing.T) {
 	parent := t.TempDir()
 	runner := &scriptedRunner{paths: installedTools()}
@@ -116,10 +135,164 @@ func TestPlanSupportsDrupalVersionsEightThroughTwelve(t *testing.T) {
 			if plan.Request.DrupalVersion != version {
 				t.Fatalf("plan Drupal version = %d, want %d", plan.Request.DrupalVersion, version)
 			}
-			if !strings.Contains(plan.Steps[6].Summary, fmt.Sprintf("Drupal %d", version)) {
-				t.Fatalf("project step = %#v", plan.Steps[6])
+			projectStep := findStep(t, plan, "project.create")
+			if !strings.Contains(projectStep.Summary, fmt.Sprintf("Drupal %d", version)) {
+				t.Fatalf("project step = %#v", projectStep)
 			}
 		})
+	}
+}
+
+func TestPlanNormalizesRequestAndCollectsDestructiveApproval(t *testing.T) {
+	parent := t.TempDir()
+	runner := &scriptedRunner{paths: installedTools()}
+	module := newTestModule(runner)
+	request := testRequest(parent)
+	request.ProjectName = "  Agent Site  "
+	request.AdminUsername = ""
+	request.GenerateContent = true
+
+	plan, err := module.Plan(context.Background(), request)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Request.ProjectName != "agent-site" || plan.Request.AdminUsername != "admin" {
+		t.Fatalf("normalized request = %#v", plan.Request)
+	}
+	if !filepath.IsAbs(plan.Request.ParentDirectory) || plan.ProjectPath != filepath.Join(parent, "agent-site") {
+		t.Fatalf("paths = parent %q, project %q", plan.Request.ParentDirectory, plan.ProjectPath)
+	}
+	if !containsEffect(plan.RequiredApprovals, effectDestructive) {
+		t.Fatalf("approvals = %#v", plan.RequiredApprovals)
+	}
+	sampleStep := findStep(t, plan, "drupal.sample_content")
+	if sampleStep.Disposition != dispositionModify || sampleStep.Retry != retryManual || !containsEffect(sampleStep.Effects, effectDestructive) {
+		t.Fatalf("sample content step = %#v", sampleStep)
+	}
+}
+
+func TestPlanRejectsInvalidRequestsBeforeInspection(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(*InstallationRequest)
+		text   string
+	}{
+		{name: "missing name", change: func(request *InstallationRequest) { request.ProjectName = "" }, text: "project name is required"},
+		{name: "leading hyphen", change: func(request *InstallationRequest) { request.ProjectName = "-site" }, text: "only lowercase"},
+		{name: "trailing hyphen", change: func(request *InstallationRequest) { request.ProjectName = "site-" }, text: "cannot end"},
+		{name: "invalid character", change: func(request *InstallationRequest) { request.ProjectName = "site_name" }, text: "only lowercase"},
+		{name: "provider", change: func(request *InstallationRequest) { request.DockerProvider = "podman" }, text: "docker or colima"},
+		{name: "parent", change: func(request *InstallationRequest) { request.ParentDirectory = " " }, text: "parent directory is required"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &scriptedRunner{paths: installedTools()}
+			module := newTestModule(runner)
+			request := testRequest(t.TempDir())
+			test.change(&request)
+
+			_, err := module.Plan(context.Background(), request)
+
+			failure := failureFromError(err)
+			if err == nil || failure.Code != "invalid_request" || !strings.Contains(failure.Message, test.text) {
+				t.Fatalf("Plan() error = %#v, want %q", err, test.text)
+			}
+			if len(runner.calls) != 0 {
+				t.Fatalf("Plan() inspected invalid request: %#v", runner.calls)
+			}
+		})
+	}
+}
+
+func TestPlanDescribesHostAndTargetBlockers(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(*testing.T, *installationModule, *scriptedRunner, *InstallationRequest)
+		stepID  string
+	}{
+		{
+			name: "unsupported platform",
+			prepare: func(_ *testing.T, module *installationModule, _ *scriptedRunner, _ *InstallationRequest) {
+				module.platform = "linux"
+			},
+			stepID: "host.platform",
+		},
+		{
+			name: "missing homebrew",
+			prepare: func(_ *testing.T, _ *installationModule, runner *scriptedRunner, _ *InstallationRequest) {
+				delete(runner.paths, "brew")
+			},
+			stepID: "host.homebrew",
+		},
+		{
+			name: "stopped Docker Desktop",
+			prepare: func(_ *testing.T, _ *installationModule, runner *scriptedRunner, request *InstallationRequest) {
+				request.DockerProvider = dockerDesktop
+				runner.onRun = func(command CommandRequest) CommandResult {
+					if command.Name == "docker" {
+						return CommandResult{Err: errors.New("not running"), ExitCode: 1}
+					}
+					return CommandResult{}
+				}
+			},
+			stepID: "runtime.start",
+		},
+		{
+			name: "existing directory",
+			prepare: func(t *testing.T, _ *installationModule, _ *scriptedRunner, request *InstallationRequest) {
+				t.Helper()
+				if err := os.Mkdir(filepath.Join(request.ParentDirectory, request.ProjectName), 0755); err != nil {
+					t.Fatal(err)
+				}
+			},
+			stepID: "project.create",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &scriptedRunner{paths: installedTools()}
+			module := newTestModule(runner)
+			request := testRequest(t.TempDir())
+			test.prepare(t, module, runner, &request)
+
+			plan, err := module.Plan(context.Background(), request)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			step := findStep(t, plan, test.stepID)
+			if !plan.Blocked || step.Disposition != dispositionBlocked {
+				t.Fatalf("plan blocked = %t, step = %#v", plan.Blocked, step)
+			}
+			if len(plan.Blockers) == 0 {
+				t.Fatal("blocked plan omitted structured blockers")
+			}
+		})
+	}
+}
+
+func TestPlanReconcilesExistingDrupalProject(t *testing.T) {
+	parent := t.TempDir()
+	projectPath := filepath.Join(parent, "agent-site")
+	if err := os.MkdirAll(projectPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectPath, "composer.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runner := &scriptedRunner{paths: installedTools()}
+	module := newTestModule(runner)
+
+	plan, err := module.Plan(context.Background(), testRequest(parent))
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Blocked || findStep(t, plan, "project.create").Disposition != dispositionNoOp {
+		t.Fatalf("existing project plan = %#v", plan)
 	}
 }
 
@@ -358,6 +531,248 @@ func TestApplyAndVerifyReturnStructuredResult(t *testing.T) {
 	}
 	if len(result.Verification) != 4 {
 		t.Fatalf("Apply() verification = %#v", result.Verification)
+	}
+}
+
+func TestApplyStopsAtFailedStepAndEmitsRedactedEvents(t *testing.T) {
+	parent := t.TempDir()
+	runner := &scriptedRunner{paths: installedTools()}
+	runner.onRun = func(request CommandRequest) CommandResult {
+		if request.Name == "composer" {
+			return CommandResult{Output: "admin could not create project", Err: errors.New("composer failed"), ExitCode: 42}
+		}
+		return CommandResult{}
+	}
+	module := newTestModule(runner)
+	plan, err := module.Plan(context.Background(), testRequest(parent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := &recordingEventSink{}
+
+	result, err := module.Apply(context.Background(), plan, approvePlan(plan), sink)
+
+	if err == nil || result.Status != "partial" || result.Failure == nil {
+		t.Fatalf("Apply() result = %#v, error = %v", result, err)
+	}
+	if result.Failure.Code != "step_failed" || result.Failure.StepID != "project.create" || result.Failure.ExitCode == nil || *result.Failure.ExitCode != 42 {
+		t.Fatalf("failure = %#v", result.Failure)
+	}
+	if len(result.Steps) == 0 || result.Steps[len(result.Steps)-1].Status != "failed" {
+		t.Fatalf("steps = %#v", result.Steps)
+	}
+	if len(sink.events) != 3 {
+		t.Fatalf("events = %#v", sink.events)
+	}
+	for index, event := range sink.events {
+		if event.Sequence != index+1 || event.Time == "" {
+			t.Errorf("event %d = %#v", index, event)
+		}
+	}
+	if sink.events[1].Type != "command_output" || strings.Contains(sink.events[1].Message, "admin") || !strings.Contains(sink.events[1].Message, "[redacted]") {
+		t.Fatalf("command event = %#v", sink.events[1])
+	}
+}
+
+func TestApplyRejectsBlockedPlanAndMismatchedDigestBeforeInspection(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		change   func(*InstallationPlan, *Approval)
+		wantCode string
+	}{
+		{
+			name: "blocked plan",
+			change: func(plan *InstallationPlan, _ *Approval) {
+				plan.Blocked = true
+				plan.Digest, _ = planDigest(*plan)
+				plan.PlanID = plan.Digest[:12]
+			},
+			wantCode: "plan_blocked",
+		},
+		{
+			name: "mismatched approval digest",
+			change: func(_ *InstallationPlan, approval *Approval) {
+				approval.PlanDigest = "another-plan"
+			},
+			wantCode: "approval_required",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &scriptedRunner{paths: installedTools()}
+			module := newTestModule(runner)
+			plan, err := module.Plan(context.Background(), testRequest(t.TempDir()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			approval := approvePlan(plan)
+			test.change(&plan, &approval)
+			callCount := len(runner.calls)
+
+			result, err := module.Apply(context.Background(), plan, approval, nil)
+
+			if err == nil || result.Failure == nil || result.Failure.Code != test.wantCode {
+				t.Fatalf("Apply() result = %#v, error = %v", result, err)
+			}
+			if len(runner.calls) != callCount {
+				t.Fatalf("Apply() inspected before rejecting: %#v", runner.calls[callCount:])
+			}
+		})
+	}
+}
+
+func TestValidatePlanRejectsMalformedSemanticData(t *testing.T) {
+	runner := &scriptedRunner{paths: installedTools()}
+	module := newTestModule(runner)
+	valid, err := module.Plan(context.Background(), testRequest(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		change func(*InstallationPlan)
+		text   string
+	}{
+		{name: "schema", change: func(plan *InstallationPlan) { plan.SchemaVersion = "1" }, text: "schema"},
+		{name: "request schema", change: func(plan *InstallationPlan) { plan.Request.SchemaVersion = "1" }, text: "unsupported Drupal version"},
+		{name: "request version", change: func(plan *InstallationPlan) { plan.Request.DrupalVersion = 13 }, text: "unsupported Drupal version"},
+		{name: "digest", change: func(plan *InstallationPlan) { plan.Digest = strings.Repeat("0", 64) }, text: "digest"},
+		{name: "plan ID", change: func(plan *InstallationPlan) { plan.PlanID = "invalid-plan" }, text: "digest"},
+		{
+			name: "unknown step",
+			change: func(plan *InstallationPlan) {
+				plan.Steps[0].ID = "shell.execute"
+				plan.Digest, _ = planDigest(*plan)
+				plan.PlanID = plan.Digest[:12]
+			},
+			text: "unknown step",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan := valid
+			plan.Steps = append([]InstallationStep(nil), valid.Steps...)
+			test.change(&plan)
+
+			failure := validatePlan(plan)
+
+			if failure == nil || failure.Code != "invalid_plan" || !strings.Contains(failure.Message, test.text) {
+				t.Fatalf("validatePlan() = %#v, want %q", failure, test.text)
+			}
+		})
+	}
+}
+
+func TestApplyStepUsesPasswordEnvironmentAndRedactsSecret(t *testing.T) {
+	const environmentName = "DROPKIT_TEST_ADMIN_PASSWORD"
+	t.Setenv(environmentName, "highly-secret")
+	runner := &scriptedRunner{paths: installedTools()}
+	module := newTestModule(runner)
+	plan := InstallationPlan{
+		ProjectPath: "/projects/site",
+		Request: InstallationRequest{
+			AdminUsername:    "site-owner",
+			AdminPasswordEnv: environmentName,
+		},
+	}
+	var events []Event
+
+	_, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "drupal.site"}, func(event Event) {
+		events = append(events, event)
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("calls = %#v", runner.calls)
+	}
+	args := strings.Join(runner.calls[0].Args, " ")
+	if !strings.Contains(args, "--account-name=site-owner") || !strings.Contains(args, "--account-pass=highly-secret") {
+		t.Fatalf("site install args = %q", args)
+	}
+
+	runner.onRun = func(CommandRequest) CommandResult {
+		return CommandResult{Output: "password=highly-secret"}
+	}
+	_, err = module.applyStep(context.Background(), plan, InstallationStep{ID: "ddev.start"}, func(event Event) {
+		events = append(events, event)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Message != "password=[redacted]" {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
+func TestApplyStepRequiresNonEmptyPasswordEnvironment(t *testing.T) {
+	const environmentName = "DROPKIT_TEST_EMPTY_PASSWORD"
+	t.Setenv(environmentName, "")
+	runner := &scriptedRunner{paths: installedTools()}
+	module := newTestModule(runner)
+	plan := InstallationPlan{Request: InstallationRequest{AdminPasswordEnv: environmentName}}
+
+	_, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "drupal.site"}, func(Event) {})
+
+	if err == nil || !strings.Contains(err.Error(), environmentName) || len(runner.calls) != 0 {
+		t.Fatalf("applyStep() error = %v, calls = %#v", err, runner.calls)
+	}
+}
+
+func TestVerifyReportsEveryFailedCheck(t *testing.T) {
+	runner := &scriptedRunner{paths: installedTools(), onRun: func(request CommandRequest) CommandResult {
+		if request.Name == "ddev" {
+			return CommandResult{Output: "runtime unavailable", Err: errors.New("failed"), ExitCode: 1}
+		}
+		return CommandResult{}
+	}}
+	module := newTestModule(runner)
+	plan, err := module.Plan(context.Background(), testRequest(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := module.Verify(context.Background(), plan, nil)
+
+	if err == nil || result.Failure == nil || result.Failure.Code != "verification_failed" || result.Status != "failed" {
+		t.Fatalf("Verify() result = %#v, error = %v", result, err)
+	}
+	if len(result.Verification) != 4 {
+		t.Fatalf("checks = %#v", result.Verification)
+	}
+	for _, check := range result.Verification {
+		if check.Passed {
+			t.Errorf("check unexpectedly passed: %#v", check)
+		}
+	}
+	if result.Verification[3].Message != "runtime unavailable" {
+		t.Fatalf("DDEV check = %#v", result.Verification[3])
+	}
+}
+
+func TestHelpersReturnStableFailureAndSiteData(t *testing.T) {
+	failure := installationFailure("step_failed", "project.create", "failed", true, "retry")
+	if failure.Error() != "failed" {
+		t.Fatalf("failure.Error() = %q", failure.Error())
+	}
+	if got := failureFromError(errors.New("boom")); got.Code != "internal_error" || got.Message != "boom" {
+		t.Fatalf("failureFromError() = %#v", got)
+	}
+	for _, test := range []struct {
+		name   string
+		output string
+		want   string
+	}{
+		{name: "valid", output: `{"raw":[{"https_url":"https://site.ddev.site"}]}`, want: "https://site.ddev.site"},
+		{name: "invalid", output: `{`, want: ""},
+		{name: "empty", output: `{"raw":[]}`, want: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := siteURLFromDescribe(test.output); got != test.want {
+				t.Fatalf("siteURLFromDescribe() = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 
