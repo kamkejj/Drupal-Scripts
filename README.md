@@ -43,7 +43,7 @@ Now you can run `dropkit` from any directory.
 Navigate to the parent directory where you want your Drupal project created and run:
 
 ```bash
- /path/to/Drupal-Scripts/binary/macos/dropkit
+ /path/to/Drupal-Scripts/binary/macos/dropkit install
 ```
 
 ## Usage
@@ -55,12 +55,12 @@ Navigate to the parent directory where you want your Drupal project created and 
 
 2. **Run the installer:**
    ```bash
-   dropkit
+   dropkit install
    ```
    
    Or if not in PATH:
    ```bash
-   /path/to/Drupal-Scripts/binary/macos/dropkit
+   /path/to/Drupal-Scripts/binary/macos/dropkit install
    ```
 
 3. **Follow the prompts** - The script will guide you through the installation process
