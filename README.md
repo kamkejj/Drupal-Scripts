@@ -22,16 +22,10 @@ Run `./install.sh --help` for all available options.
 
 1. **Copy the binary to a location in your PATH:**
    ```bash
-   sudo cp binary/macos/dropkit /usr/local/bin/
-   sudo chmod +x /usr/local/bin/dropkit
+   sudo install -m 755 binary/macos/dropkit /usr/local/bin/dropkit
    ```
 
-2. **Or create a symlink:**
-   ```bash
-   sudo ln -s /path/to/Drupal-Scripts/binary/macos/dropkit /usr/local/bin/dropkit
-   ```
-
-3. **Verify installation:**
+2. **Verify installation:**
    ```bash
    which dropkit
    ```
