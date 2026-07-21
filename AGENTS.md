@@ -1,16 +1,16 @@
 # Agent Guidelines for Drupal-Scripts
 
 ## Build Commands
-- Build binary: `go build -o install-drupal` (creates binary in current directory)
-- Build for macOS: `go build -o binary/macos/install-drupal`
-- Run: `./install-drupal` or `go run main.go`
+- Build binary: `go build -o dropkit` (creates binary in current directory)
+- Build for macOS: `go build -o binary/macos/dropkit`
+- Run: `./dropkit` or `go run main.go`
 - No test suite exists currently
 
 ## Code Style
 
 ### Language & Module
 - Go 1.25.1
-- Module: `drupal-installer`
+- Module: `dropkit`
 - No external dependencies (stdlib only)
 
 ### Imports

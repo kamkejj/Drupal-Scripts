@@ -1,6 +1,6 @@
-# Drupal 11 Installation Script (MacOS)
+# Dropkit
 
-This tool automates the installation of Drupal 11 with all necessary prerequisites on macOS, including essential development modules.
+Dropkit automates the installation of Drupal 11 with all necessary prerequisites on macOS, including essential development modules.
 
 ## Installation
 
@@ -13,7 +13,7 @@ The project now includes an automated installer script that handles the installa
 ./install.sh
 
 # Or with custom options
-./install.sh --path ~/bin/install-drupal --add-to-path
+./install.sh --path ~/bin/dropkit --add-to-path
 ```
 
 Run `./install.sh --help` for all available options.
@@ -22,28 +22,28 @@ Run `./install.sh --help` for all available options.
 
 1. **Copy the binary to a location in your PATH:**
    ```bash
-   sudo cp binary/macos/install-drupal /usr/local/bin/
-   sudo chmod +x /usr/local/bin/install-drupal
+   sudo cp binary/macos/dropkit /usr/local/bin/
+   sudo chmod +x /usr/local/bin/dropkit
    ```
 
 2. **Or create a symlink:**
    ```bash
-   sudo ln -s /path/to/Drupal-Scripts/binary/macos/install-drupal /usr/local/bin/install-drupal
+   sudo ln -s /path/to/Drupal-Scripts/binary/macos/dropkit /usr/local/bin/dropkit
    ```
 
 3. **Verify installation:**
    ```bash
-   which install-drupal
+   which dropkit
    ```
 
-Now you can run `install-drupal` from any directory.
+Now you can run `dropkit` from any directory.
 
 ### Option 3: Run Directly
 
 Navigate to the parent directory where you want your Drupal project created and run:
 
 ```bash
-/path/to/Drupal-Scripts/binary/macos/install-drupal
+ /path/to/Drupal-Scripts/binary/macos/dropkit
 ```
 
 ## Usage
@@ -55,12 +55,12 @@ Navigate to the parent directory where you want your Drupal project created and 
 
 2. **Run the installer:**
    ```bash
-   install-drupal
+   dropkit
    ```
    
    Or if not in PATH:
    ```bash
-   /path/to/Drupal-Scripts/install-drupal
+   /path/to/Drupal-Scripts/binary/macos/dropkit
    ```
 
 3. **Follow the prompts** - The script will guide you through the installation process
@@ -180,10 +180,10 @@ If you want to build the binary yourself:
 
 ```bash
 cd /path/to/Drupal-Scripts
-go build -o install-drupal
+go build -o dropkit
 ```
 
-This will create the `install-drupal` binary in the current directory.
+This will create the `dropkit` binary in the current directory.
 
 ### Using Makefile
 

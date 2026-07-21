@@ -36,8 +36,8 @@ if [[ "$OSTYPE" != "darwin"* ]]; then
 fi
 
 # Default installation path
-DEFAULT_INSTALL_PATH="/usr/local/bin/install-drupal"
-DEFAULT_BINARY_PATH="./binary/macos/install-drupal"
+DEFAULT_INSTALL_PATH="/usr/local/bin/dropkit"
+DEFAULT_BINARY_PATH="./binary/macos/dropkit"
 
 # Function to check if a command exists
 command_exists() {
@@ -60,7 +60,7 @@ install_binary() {
     
     # Check if binary exists
     if [ ! -f "$binary_path" ]; then
-        print_error "Binary not found at $binary_path. Please build it first with 'go build -o binary/macos/install-drupal'"
+        print_error "Binary not found at $binary_path. Please build it first with 'go build -o binary/macos/dropkit'"
         exit 1
     fi
     
@@ -167,8 +167,8 @@ main() {
             -h|--help)
                 echo "Usage: $0 [OPTIONS]"
                 echo "Options:"
-                echo "  -p, --path PATH     Installation path (default: /usr/local/bin/install-drupal)"
-                echo "  -b, --binary PATH   Binary path (default: ./binary/macos/install-drupal)"
+                echo "  -p, --path PATH     Installation path (default: /usr/local/bin/dropkit)"
+                echo "  -b, --binary PATH   Binary path (default: ./binary/macos/dropkit)"
                 echo "  --add-to-path       Add installation directory to PATH if not already there"
                 echo "  -h, --help          Show this help message"
                 exit 0
@@ -205,9 +205,9 @@ main() {
         
         echo
         print_status "Installation completed successfully!"
-        print_success "You can now run 'install-drupal' from any directory."
+        print_success "You can now run 'dropkit' from any directory."
         echo "Navigate to the directory where you want to create your Drupal project and run:"
-        echo "  install-drupal"
+        echo "  dropkit"
     else
         print_error "Installation failed!"
         exit 1

@@ -1,7 +1,7 @@
 # Makefile for Drupal 11 Installation Script
 
 # Variables
-BINARY_NAME = install-drupal
+BINARY_NAME = dropkit
 BINARY_DIR = binary/macos
 SOURCE_FILE = main.go
 INSTALL_SCRIPT = install.sh
