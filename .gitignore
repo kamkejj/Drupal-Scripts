@@ -1,17 +1,35 @@
-# Binaries
-install-drupal
-binary/
-
-# Go build artifacts
-*.out
-coverage.txt
-
-# IDE
-.vscode/
+# GoLand and JetBrains IDEs
 .idea/
+*.iml
+
+# Visual Studio Code and editor files
+.vscode/
 *.swp
 *.swo
 *~
 
-# OS
+# Go build artifacts
+/dropkit
+/binary/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Test and profiling output
+coverage.*
+*.prof
+*.pprof
+
+# Generated Dropkit plans
+/dropkit-plan.json
+
+# Local environment and operating-system files
+.env
+.env.*
+!.env.example
 .DS_Store
+Thumbs.db
