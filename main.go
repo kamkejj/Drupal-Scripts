@@ -48,14 +48,14 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "Usage: dropkit <command>")
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Commands:")
-	fmt.Fprintln(writer, "  install    Install a Drupal 11 development environment")
+	fmt.Fprintln(writer, "  install    Install a Drupal 8-12 development environment")
 	fmt.Fprintln(writer, "  help       Show help for a command")
 }
 
 func printInstallUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "Usage:")
 	fmt.Fprintln(writer, "  dropkit install                                                Interactive TUI (terminal only)")
-	fmt.Fprintln(writer, "  dropkit install plan --name NAME --parent DIR --provider docker|colima [options]")
+	fmt.Fprintln(writer, "  dropkit install plan --name NAME --parent DIR --provider docker|colima --drupal-version VERSION [options]")
 	fmt.Fprintln(writer, "  dropkit install apply --plan FILE [approvals] [options]")
 	fmt.Fprintln(writer, "  dropkit install verify --plan FILE [options]")
 	fmt.Fprintln(writer)

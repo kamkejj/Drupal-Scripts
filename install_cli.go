@@ -66,6 +66,7 @@ func runPlanCommand(ctx context.Context, module InstallationModule, args []strin
 	name := flags.String("name", "", "Drupal project name")
 	parent := flags.String("parent", "", "parent directory")
 	provider := flags.String("provider", "", "docker or colima")
+	drupalVersion := flags.Int("drupal-version", 0, "Drupal major version from 8 through 12")
 	generateContent := flags.Bool("generate-content", false, "generate sample content")
 	adminUsername := flags.String("admin-user", "admin", "Drupal administrator username")
 	adminPasswordEnv := flags.String("admin-password-env", "", "environment variable containing the Drupal administrator password")
@@ -80,6 +81,7 @@ func runPlanCommand(ctx context.Context, module InstallationModule, args []strin
 		ProjectName:      *name,
 		ParentDirectory:  *parent,
 		DockerProvider:   DockerProvider(*provider),
+		DrupalVersion:    *drupalVersion,
 		GenerateContent:  *generateContent,
 		AdminUsername:    *adminUsername,
 		AdminPasswordEnv: *adminPasswordEnv,
@@ -318,7 +320,10 @@ func validOutputFormat(format string) bool {
 }
 
 func printPlanUsage(writer io.Writer) {
-	fmt.Fprintln(writer, "Usage: dropkit install plan --name NAME --parent DIR --provider docker|colima [options]")
+	fmt.Fprintln(writer, "Usage: dropkit install plan --name NAME --parent DIR --provider docker|colima --drupal-version 8|9|10|11|12 [options]")
+	fmt.Fprintln(writer)
+	fmt.Fprintln(writer, "Required inputs:")
+	fmt.Fprintln(writer, "  --drupal-version VERSION   Drupal major version from 8 through 12")
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Read-only options:")
 	fmt.Fprintln(writer, "  --generate-content          Include destructive sample-content generation")

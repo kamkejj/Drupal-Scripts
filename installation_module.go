@@ -24,7 +24,12 @@ var configIndicatorYML string
 //go:embed config/environment_indicator.settings.yml
 var configSettingsYML string
 
-const installationSchemaVersion = "1"
+const (
+	installationSchemaVersion = "2"
+	defaultDrupalVersion      = 11
+	minimumDrupalVersion      = 8
+	maximumDrupalVersion      = 12
+)
 
 type DockerProvider string
 
@@ -65,6 +70,7 @@ type InstallationRequest struct {
 	ProjectName      string         `json:"project_name"`
 	ParentDirectory  string         `json:"parent_directory"`
 	DockerProvider   DockerProvider `json:"docker_provider"`
+	DrupalVersion    int            `json:"drupal_version"`
 	GenerateContent  bool           `json:"generate_content"`
 	AdminUsername    string         `json:"admin_username"`
 	AdminPasswordEnv string         `json:"admin_password_env,omitempty"`
@@ -328,6 +334,9 @@ func (module *installationModule) normalizeRequest(request InstallationRequest) 
 	if request.DockerProvider != dockerDesktop && request.DockerProvider != colima {
 		return InstallationRequest{}, "", installationFailure("invalid_request", "", "docker provider must be docker or colima", false, "provide --provider docker or --provider colima")
 	}
+	if request.DrupalVersion < minimumDrupalVersion || request.DrupalVersion > maximumDrupalVersion {
+		return InstallationRequest{}, "", installationFailure("invalid_request", "", "Drupal version must be between 8 and 12", false, "provide --drupal-version with a major version from 8 through 12")
+	}
 	if strings.TrimSpace(request.ParentDirectory) == "" {
 		return InstallationRequest{}, "", installationFailure("invalid_request", "", "parent directory is required", false, "provide --parent")
 	}
@@ -431,8 +440,8 @@ func (module *installationModule) buildSteps(request InstallationRequest, inspec
 		projectDisposition = dispositionBlocked
 		projectReason = "the project target already exists"
 	}
-	appendStep(InstallationStep{ID: "project.create", Summary: "Create Drupal 11 project", DependsOn: []string{"host.composer"}, Disposition: projectDisposition, Effects: []Effect{effectFilesystem, effectProcess, effectNetwork}, Retry: retryReconcile, Reason: projectReason})
-	appendStep(InstallationStep{ID: "ddev.configure", Summary: "Configure DDEV", DependsOn: []string{"project.create", "host.ddev", "runtime.start"}, Disposition: dispositionCreate, Effects: []Effect{effectFilesystem, effectProcess}, Retry: retryReconcile})
+	appendStep(InstallationStep{ID: "project.create", Summary: fmt.Sprintf("Create Drupal %d project", request.DrupalVersion), DependsOn: []string{"host.composer"}, Disposition: projectDisposition, Effects: []Effect{effectFilesystem, effectProcess, effectNetwork}, Retry: retryReconcile, Reason: projectReason})
+	appendStep(InstallationStep{ID: "ddev.configure", Summary: fmt.Sprintf("Configure DDEV for Drupal %d", request.DrupalVersion), DependsOn: []string{"project.create", "host.ddev", "runtime.start"}, Disposition: dispositionCreate, Effects: []Effect{effectFilesystem, effectProcess}, Retry: retryReconcile})
 	appendStep(InstallationStep{ID: "ddev.start", Summary: "Start DDEV project", DependsOn: []string{"ddev.configure"}, Disposition: dispositionModify, Effects: []Effect{effectProcess}, Retry: retrySafe})
 	appendStep(InstallationStep{ID: "drupal.dependencies", Summary: "Install Drupal dependencies", DependsOn: []string{"ddev.start"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess, effectNetwork}, Retry: retryReconcile})
 	appendStep(InstallationStep{ID: "drupal.settings", Summary: "Write Drupal development settings", DependsOn: []string{"drupal.dependencies"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem}, Retry: retrySafe})
@@ -556,16 +565,17 @@ func (module *installationModule) applyStep(ctx context.Context, plan Installati
 	case "host.ddev":
 		return run("brew", []string{"install", "ddev/ddev/ddev"}, "")
 	case "project.create":
-		return run("composer", []string{"create-project", "drupal/recommended-project:^11", plan.ProjectPath}, plan.Request.ParentDirectory)
+		return run("composer", []string{"create-project", "drupal/recommended-project:" + drupalProjectConstraint(plan.Request.DrupalVersion), plan.ProjectPath}, plan.Request.ParentDirectory)
 	case "ddev.configure":
-		return run("ddev", []string{"config", "--project-type=drupal11", "--docroot=web", "--create-docroot"}, plan.ProjectPath)
+		return run("ddev", []string{"config", fmt.Sprintf("--project-type=drupal%d", plan.Request.DrupalVersion), "--docroot=web", "--create-docroot"}, plan.ProjectPath)
 	case "ddev.start":
 		return run("ddev", []string{"start"}, plan.ProjectPath)
 	case "drupal.dependencies":
+		contribCommand := append([]string{"composer", "require"}, drupalContribPackages(plan.Request.DrupalVersion)...)
 		commands := [][]string{
 			{"composer", "install"},
-			{"composer", "require", "drupal/core-dev", "--dev", "-W"},
-			{"composer", "require", "drush/drush", "drupal/admin_toolbar", "drupal/token", "drupal/pathauto", "drupal/config_ignore", "drupal/config_split", "drupal/devel", "drupal/environment_indicator", "drupal/better_exposed_filters", "drupal/key", "drupal/webprofiler", "drupal/diff:^2.0@beta", "drupal/ultimate_cron:^2.0@beta"},
+			{"composer", "require", "drupal/core-dev:" + drupalProjectConstraint(plan.Request.DrupalVersion), "--dev", "-W"},
+			contribCommand,
 		}
 		for _, args := range commands {
 			result, err := run("ddev", args, plan.ProjectPath)
@@ -587,7 +597,7 @@ func (module *installationModule) applyStep(ctx context.Context, plan Installati
 		args := []string{"drush", "site:install", "standard", "--yes", "--account-name=" + plan.Request.AdminUsername, "--account-pass=" + password, "--site-name=Super Awesome Site"}
 		return run("ddev", args, plan.ProjectPath)
 	case "drupal.modules":
-		modules := []string{"admin_toolbar", "config_split", "devel", "environment_indicator", "environment_indicator_ui", "environment_indicator_toolbar", "token", "pathauto", "config_ignore", "better_exposed_filters", "key", "webprofiler", "diff", "ultimate_cron", "devel_generate"}
+		modules := drupalEnabledModules(plan.Request.DrupalVersion)
 		args := append([]string{"drush", "en", "-y"}, modules...)
 		return run("ddev", args, plan.ProjectPath)
 	case "drupal.config":
@@ -673,6 +683,10 @@ func validatePlan(plan InstallationPlan) *InstallationFailure {
 		failure := installationFailure("invalid_plan", "", "unsupported installation plan schema", false, "create a new plan with this Dropkit version")
 		return &failure
 	}
+	if plan.Request.SchemaVersion != installationSchemaVersion || plan.Request.DrupalVersion < minimumDrupalVersion || plan.Request.DrupalVersion > maximumDrupalVersion {
+		failure := installationFailure("invalid_plan", "", "installation plan contains an unsupported Drupal version", false, "create a new plan with a Drupal version from 8 through 12")
+		return &failure
+	}
 	digest, err := planDigest(plan)
 	if err != nil || digest != plan.Digest || plan.PlanID != plan.Digest[:12] {
 		failure := installationFailure("invalid_plan", "", "installation plan digest is invalid", false, "create a new plan")
@@ -686,6 +700,27 @@ func validatePlan(plan InstallationPlan) *InstallationFailure {
 		}
 	}
 	return nil
+}
+
+func drupalProjectConstraint(version int) string {
+	if version == maximumDrupalVersion {
+		return "main-dev@dev"
+	}
+	return fmt.Sprintf("^%d", version)
+}
+
+func drupalContribPackages(version int) []string {
+	if version == maximumDrupalVersion {
+		return []string{"drush/drush", "drupal/token", "drupal/devel", "drupal/environment_indicator"}
+	}
+	return []string{"drush/drush", "drupal/admin_toolbar", "drupal/token", "drupal/pathauto", "drupal/config_ignore", "drupal/config_split", "drupal/devel", "drupal/environment_indicator", "drupal/better_exposed_filters", "drupal/key", "drupal/webprofiler", "drupal/diff:^2.0@beta", "drupal/ultimate_cron:^2.0@beta"}
+}
+
+func drupalEnabledModules(version int) []string {
+	if version == maximumDrupalVersion {
+		return []string{"devel", "devel_generate", "environment_indicator", "environment_indicator_ui", "environment_indicator_toolbar", "token"}
+	}
+	return []string{"admin_toolbar", "config_split", "devel", "environment_indicator", "environment_indicator_ui", "environment_indicator_toolbar", "token", "pathauto", "config_ignore", "better_exposed_filters", "key", "webprofiler", "diff", "ultimate_cron", "devel_generate"}
 }
 
 func planDigest(plan InstallationPlan) (string, error) {

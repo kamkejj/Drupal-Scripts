@@ -1,6 +1,6 @@
 # Dropkit
 
-Dropkit automates the installation of Drupal 11 with all necessary prerequisites on macOS, including essential development modules.
+Dropkit automates the installation of Drupal 8 through 12 with all necessary prerequisites on macOS, including essential development modules.
 
 ## Installation
 
@@ -57,7 +57,7 @@ Navigate to the parent directory where you want your Drupal project created and 
    /path/to/Drupal-Scripts/binary/macos/dropkit install
    ```
 
-3. **Complete the terminal wizard** - Choose a container runtime, name the project, and decide whether to generate sample content
+3. **Complete the terminal wizard** - Choose a container runtime and Drupal version, name the project, and decide whether to generate sample content
 
 4. **Review and authorize the plan** - The full-screen TUI shows every planned step and the network, host, or destructive effects requiring approval before anything is changed
 
@@ -76,6 +76,7 @@ dropkit install plan \
   --name my-drupal-site \
   --parent "$PWD" \
   --provider colima \
+  --drupal-version 12 \
   --admin-password-env DRUPAL_ADMIN_PASSWORD \
   --output json > dropkit-plan.json
 ```
@@ -103,6 +104,8 @@ dropkit install verify \
 
 In JSON mode, stdout contains one final JSON document. Progress and subprocess output are written to stderr; `--events jsonl` makes every stderr event machine-readable. A non-terminal `dropkit install` invocation never prompts and returns an error directing the caller to create a plan.
 
+`--drupal-version` is required for automated plans and accepts a major version from 8 through 12. The selected version is stored in the plan and controls both the Composer project constraint and DDEV project type. Until Drupal 12 has a stable release, selecting version 12 installs its development branch.
+
 Plans contain stable semantic step IDs, effect classifications, retry guidance, and a digest. They do not contain executable shell commands or password values. Applying a plan fails before mutation when required authorization is missing, the plan has been altered, or inspected host state has changed.
 
 Effect authorization flags are:
@@ -122,19 +125,20 @@ If a plan reports a blocker, resolve it and create a new plan. Docker Desktop mu
 ## What the installer does
 
 1. **Prompts for Docker provider** - Choose between Docker Desktop or Colima
-2. **Checks prerequisites** - Displays status of required tools based on your Docker provider choice
-3. **Checks for Homebrew** - Ensures Homebrew is installed (required for other installations)
-4. **Installs and starts Docker provider** - Installs and ensures your chosen provider (Docker Desktop or Colima) is running
-5. **Installs DDEV** - Drupal development environment
-6. **Creates Drupal project** - Prompts for project name and creates Drupal 11 project in current directory
-7. **Initializes DDEV project** - Sets up DDEV configuration for Drupal 11
-8. **Starts DDEV** - Launches the development environment
-9. **Installs Drupal dependencies** - Runs `composer install` and installs essential modules via DDEV
-10. **Configures Drupal settings** - Sets up config sync directory and environment indicator configs
-11. **Installs Drupal site** - Creates a fresh Drupal 11 installation with admin credentials
-12. **Enables development modules** - Automatically enables admin_toolbar, config_split, devel, and more
-13. **Imports configuration** - Imports environment indicator and other configs
-14. **Generates content (optional)** - Optionally generates sample users and content for testing
+2. **Prompts for Drupal version** - Choose a major version from Drupal 8 through 12
+3. **Checks prerequisites** - Displays status of required tools based on your Docker provider choice
+4. **Checks for Homebrew** - Ensures Homebrew is installed (required for other installations)
+5. **Installs and starts Docker provider** - Installs and ensures your chosen provider (Docker Desktop or Colima) is running
+6. **Installs DDEV** - Drupal development environment
+7. **Creates Drupal project** - Prompts for project name and creates the selected Drupal version in the current directory
+8. **Initializes DDEV project** - Sets the DDEV project type to the selected Drupal version
+9. **Starts DDEV** - Launches the development environment
+10. **Installs Drupal dependencies** - Runs `composer install` and installs essential modules via DDEV
+11. **Configures Drupal settings** - Sets up config sync directory and environment indicator configs
+12. **Installs Drupal site** - Creates a fresh Drupal installation with admin credentials
+13. **Enables development modules** - Automatically enables admin_toolbar, config_split, devel, and more
+14. **Imports configuration** - Imports environment indicator and other configs
+15. **Generates content (optional)** - Optionally generates sample users and content for testing
 
 ## What gets installed
 
@@ -144,7 +148,7 @@ If a plan reports a blocker, resolve it and create a new plan. Docker Desktop mu
 - **DDEV** - Drupal development environment
 
 ### Drupal Setup
-- Drupal 11 core and dependencies
+- The selected Drupal core version and dependencies
 - Standard Drupal installation
 - Admin account: `admin` / `admin`
 - **Development modules automatically installed and enabled:**
@@ -162,11 +166,13 @@ If a plan reports a blocker, resolve it and create a new plan. Docker Desktop mu
   - **Diff** - Configuration comparison tools
   - **Ultimate Cron** - Advanced cron management
 
+Drupal 12 currently installs the Drupal 12-compatible subset of this bundle: Token, Devel, Devel Generate, and Environment Indicator. The remaining contributed modules are omitted until their published Composer metadata supports Drupal 12.
+
 ## After Installation
 
 Once the script completes, you'll have:
 
-- A fully functional Drupal 11 site in a project directory
+- A fully functional site using the selected Drupal version in a project directory
 - DDEV development environment running
 - Access to your site via the provided URL
 - Admin access with username: `admin`, password: `admin`
@@ -277,11 +283,15 @@ If you prefer to install Drupal manually without using this tool:
    cd my-drupal-site
    ```
 
+   Replace `11` with the Drupal major version you want to install.
+
 6. **Initialize DDEV project**:
    ```bash
    ddev config --project-type=drupal11 --docroot=web --create-docroot
    ddev start
    ```
+
+   The DDEV project type must use the same Drupal major version selected for Composer.
 
 7. **Install Drupal dependencies and modules**:
    ```bash

@@ -30,6 +30,7 @@ type installTUIStage int
 
 const (
 	installTUIProvider installTUIStage = iota
+	installTUIVersion
 	installTUIProject
 	installTUIContent
 	installTUIPlanning
@@ -69,6 +70,7 @@ type installTUIModel struct {
 	parent          string
 	stage           installTUIStage
 	provider        DockerProvider
+	drupalVersion   int
 	projectName     string
 	generateContent bool
 	plan            InstallationPlan
@@ -85,13 +87,14 @@ type installTUIModel struct {
 
 func newInstallTUIModel(ctx context.Context, cancel context.CancelFunc, module InstallationModule, parent string) *installTUIModel {
 	return &installTUIModel{
-		ctx:      ctx,
-		cancel:   cancel,
-		module:   module,
-		parent:   parent,
-		provider: colima,
-		width:    80,
-		height:   24,
+		ctx:           ctx,
+		cancel:        cancel,
+		module:        module,
+		parent:        parent,
+		provider:      colima,
+		drupalVersion: defaultDrupalVersion,
+		width:         80,
+		height:        24,
 	}
 }
 
@@ -170,6 +173,21 @@ func (model *installTUIModel) handleKey(message tea.KeyPressMsg) (tea.Model, tea
 				model.provider = colima
 			}
 		case "enter":
+			model.stage = installTUIVersion
+		}
+	case installTUIVersion:
+		switch message.String() {
+		case "up", "left", "shift+tab":
+			model.drupalVersion--
+			if model.drupalVersion < minimumDrupalVersion {
+				model.drupalVersion = maximumDrupalVersion
+			}
+		case "down", "right", "tab", "space":
+			model.drupalVersion++
+			if model.drupalVersion > maximumDrupalVersion {
+				model.drupalVersion = minimumDrupalVersion
+			}
+		case "enter":
 			model.stage = installTUIProject
 		}
 	case installTUIProject:
@@ -223,6 +241,7 @@ func (model *installTUIModel) planCommand() tea.Cmd {
 		ProjectName:     model.projectName,
 		ParentDirectory: model.parent,
 		DockerProvider:  model.provider,
+		DrupalVersion:   model.drupalVersion,
 		GenerateContent: model.generateContent,
 		AdminUsername:   "admin",
 	}
@@ -253,11 +272,13 @@ func installTUITick() tea.Cmd {
 
 func (model *installTUIModel) View() tea.View {
 	var body strings.Builder
-	body.WriteString(tuiBold + tuiPink + "  DROP KIT" + tuiReset + tuiMuted + "  Drupal 11 environment builder" + tuiReset + "\n")
+	body.WriteString(tuiBold + tuiPink + "  DROP KIT" + tuiReset + tuiMuted + "  Drupal environment builder" + tuiReset + "\n")
 	body.WriteString(tuiMuted + "  " + strings.Repeat("─", model.contentWidth()) + tuiReset + "\n\n")
 	switch model.stage {
 	case installTUIProvider:
 		model.renderProvider(&body)
+	case installTUIVersion:
+		model.renderVersion(&body)
 	case installTUIProject:
 		model.renderProject(&body)
 	case installTUIContent:
@@ -275,6 +296,21 @@ func (model *installTUIModel) View() tea.View {
 	view.AltScreen = true
 	view.WindowTitle = "Dropkit"
 	return view
+}
+
+func (model *installTUIModel) renderVersion(body *strings.Builder) {
+	body.WriteString(tuiBold + "  Choose a Drupal version" + tuiReset + "\n")
+	body.WriteString(tuiMuted + "  Supported major versions are 8 through 12." + tuiReset + "\n\n")
+	for version := minimumDrupalVersion; version <= maximumDrupalVersion; version++ {
+		detail := ""
+		if version == defaultDrupalVersion {
+			detail = "Default"
+		} else if version == maximumDrupalVersion {
+			detail = "Development"
+		}
+		model.renderChoice(body, model.drupalVersion == version, fmt.Sprintf("Drupal %d", version), detail)
+	}
+	model.renderFooter(body, "↑/↓ choose", "enter continue", "q quit")
 }
 
 func (model *installTUIModel) renderProvider(body *strings.Builder) {
@@ -323,6 +359,7 @@ func (model *installTUIModel) renderReview(body *strings.Builder) {
 	}
 	body.WriteString("  " + tuiGreen + "✓" + tuiReset + " " + tuiBold + "Installation plan" + tuiReset + tuiMuted + "  #" + model.plan.PlanID + tuiReset + "\n")
 	body.WriteString("  " + tuiMuted + model.plan.ProjectPath + tuiReset + "\n\n")
+	body.WriteString(fmt.Sprintf("  %sDrupal %d%s\n\n", tuiBold, model.plan.Request.DrupalVersion, tuiReset))
 	for _, step := range model.plan.Steps {
 		icon, color := "○", tuiMuted
 		switch step.Disposition {
@@ -349,7 +386,7 @@ func (model *installTUIModel) renderReview(body *strings.Builder) {
 
 func (model *installTUIModel) renderApply(body *strings.Builder) {
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	body.WriteString("  " + tuiCyan + frames[model.spinner] + tuiReset + " " + tuiBold + "Installing Drupal" + tuiReset + "\n")
+	body.WriteString(fmt.Sprintf("  %s%s%s %sInstalling Drupal %d%s\n", tuiCyan, frames[model.spinner], tuiReset, tuiBold, model.plan.Request.DrupalVersion, tuiReset))
 	body.WriteString("  " + tuiMuted + trimForWidth(model.status, model.contentWidth()-2) + tuiReset + "\n\n")
 	for _, event := range model.events {
 		icon, color := "·", tuiMuted
@@ -381,7 +418,7 @@ func (model *installTUIModel) renderFinished(body *strings.Builder) {
 			body.WriteString("  " + tuiYellow + "Recovery: " + tuiReset + failure.Recovery + "\n")
 		}
 	} else {
-		body.WriteString("  " + tuiGreen + tuiBold + "✓  Drupal is ready" + tuiReset + "\n\n")
+		body.WriteString(fmt.Sprintf("  %s%s✓  Drupal %d is ready%s\n\n", tuiGreen, tuiBold, model.plan.Request.DrupalVersion, tuiReset))
 		body.WriteString("  Project  " + model.result.ProjectPath + "\n")
 		if model.result.SiteURL != "" {
 			body.WriteString("  Site     " + tuiCyan + model.result.SiteURL + tuiReset + "\n")

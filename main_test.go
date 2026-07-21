@@ -22,7 +22,7 @@ func TestRunCLI(t *testing.T) {
 		{
 			name:       "help",
 			args:       []string{"help"},
-			stdoutText: "install    Install a Drupal 11 development environment",
+			stdoutText: "install    Install a Drupal 8-12 development environment",
 		},
 		{
 			name:       "short help",

@@ -49,6 +49,11 @@ func TestInstallTUIBuildsPlanThroughGuidedFlow(t *testing.T) {
 	model := newInstallTUIModel(ctx, cancel, module, "/projects")
 
 	model.Update(tuiKey(tea.KeyEnter, ""))
+	if !strings.Contains(model.View().Content, "Choose a Drupal version") {
+		t.Fatalf("version view = %q", model.View().Content)
+	}
+	model.Update(tuiKey(tea.KeyDown, ""))
+	model.Update(tuiKey(tea.KeyEnter, ""))
 	model.Update(tuiKey('q', "q"))
 	model.Update(tuiKey('u', "u"))
 	model.Update(tuiKey('i', "i"))
@@ -79,7 +84,7 @@ func TestInstallTUIBuildsPlanThroughGuidedFlow(t *testing.T) {
 	if module.request.ProjectName != "quick-site" || module.request.ParentDirectory != "/projects" {
 		t.Fatalf("request = %#v", module.request)
 	}
-	if module.request.DockerProvider != colima || !module.request.GenerateContent || module.request.AdminUsername != "admin" {
+	if module.request.DockerProvider != colima || module.request.DrupalVersion != 12 || !module.request.GenerateContent || module.request.AdminUsername != "admin" {
 		t.Fatalf("request = %#v", module.request)
 	}
 	if module.request.AdminPasswordEnv != "" {
