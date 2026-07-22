@@ -796,7 +796,7 @@ func drupalEnabledModules(version int) []string {
 	if version == maximumDrupalVersion {
 		return []string{"devel", "devel_generate", "environment_indicator", "environment_indicator_ui", "environment_indicator_toolbar", "token"}
 	}
-	return []string{"admin_toolbar", "config_split", "devel", "environment_indicator", "environment_indicator_ui", "environment_indicator_toolbar", "token", "pathauto", "config_ignore", "better_exposed_filters", "key", "webprofiler", "diff", "ultimate_cron", "devel_generate"}
+	return []string{"admin_toolbar", "admin_toolbar_tools", "config_split", "devel", "environment_indicator", "environment_indicator_ui", "environment_indicator_toolbar", "token", "pathauto", "config_ignore", "better_exposed_filters", "key", "webprofiler", "diff", "ultimate_cron", "devel_generate"}
 }
 
 func commerceModules() []string {
