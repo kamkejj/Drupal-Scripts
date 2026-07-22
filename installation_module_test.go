@@ -143,6 +143,60 @@ func TestPlanSupportsDrupalVersionsEightThroughTwelve(t *testing.T) {
 	}
 }
 
+func TestCommercePlanReusesDrupalInstallAndAddsCommerceSteps(t *testing.T) {
+	for _, version := range []int{10, 11} {
+		t.Run(fmt.Sprintf("Drupal%d", version), func(t *testing.T) {
+			runner := &scriptedRunner{paths: installedTools()}
+			module := newTestModule(runner)
+			request := testRequest(t.TempDir())
+			request.InstallationType = commerceInstallation
+			request.DrupalVersion = version
+
+			plan, err := module.Plan(context.Background(), request)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.Request.InstallationType != commerceInstallation {
+				t.Fatalf("installation type = %q", plan.Request.InstallationType)
+			}
+			dependencies := findStep(t, plan, "commerce.dependencies")
+			if len(dependencies.DependsOn) != 1 || dependencies.DependsOn[0] != "drupal.sample_content" || dependencies.Disposition != dispositionModify || dependencies.Retry != retryReconcile || !containsEffect(dependencies.Effects, effectNetwork) {
+				t.Fatalf("commerce dependencies step = %#v", dependencies)
+			}
+			modules := findStep(t, plan, "commerce.modules")
+			if len(modules.DependsOn) != 1 || modules.DependsOn[0] != dependencies.ID || modules.Disposition != dispositionModify || modules.Retry != retrySafe {
+				t.Fatalf("commerce modules step = %#v", modules)
+			}
+			if plan.Steps[len(plan.Steps)-1].ID != modules.ID {
+				t.Fatalf("commerce modules step is not final: %#v", plan.Steps)
+			}
+		})
+	}
+}
+
+func TestCommercePlanRejectsUnsupportedDrupalVersionsBeforeInspection(t *testing.T) {
+	for _, version := range []int{8, 9, 12} {
+		t.Run(fmt.Sprintf("Drupal%d", version), func(t *testing.T) {
+			runner := &scriptedRunner{paths: installedTools()}
+			module := newTestModule(runner)
+			request := testRequest(t.TempDir())
+			request.InstallationType = commerceInstallation
+			request.DrupalVersion = version
+
+			_, err := module.Plan(context.Background(), request)
+
+			failure := failureFromError(err)
+			if err == nil || failure.Code != "invalid_request" || !strings.Contains(failure.Message, "Drupal 10 or 11") {
+				t.Fatalf("Plan() error = %#v", err)
+			}
+			if len(runner.calls) != 0 {
+				t.Fatalf("Plan() inspected invalid request: %#v", runner.calls)
+			}
+		})
+	}
+}
+
 func TestPlanNormalizesRequestAndCollectsDestructiveApproval(t *testing.T) {
 	parent := t.TempDir()
 	runner := &scriptedRunner{paths: installedTools()}
@@ -374,6 +428,45 @@ func TestDrupalDependenciesMatchSelectedCoreVersion(t *testing.T) {
 				t.Fatalf("core-dev args = %q, want %q", coreDevArgs, want)
 			}
 		})
+	}
+}
+
+func TestCommerceDependenciesUseRequestedComposerConstraint(t *testing.T) {
+	runner := &scriptedRunner{paths: installedTools()}
+	module := newTestModule(runner)
+	plan := InstallationPlan{ProjectPath: "/projects/store", Request: InstallationRequest{InstallationType: commerceInstallation, DrupalVersion: 11}}
+
+	_, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "commerce.dependencies"}, func(Event) {})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("calls = %#v", runner.calls)
+	}
+	call := runner.calls[0]
+	if call.Name != "ddev" || call.Dir != plan.ProjectPath || strings.Join(call.Args, " ") != "composer require drupal/commerce:^3.3" {
+		t.Fatalf("commerce command = %#v", call)
+	}
+}
+
+func TestCommerceModulesAreEnabled(t *testing.T) {
+	runner := &scriptedRunner{paths: installedTools()}
+	module := newTestModule(runner)
+	plan := InstallationPlan{ProjectPath: "/projects/store", Request: InstallationRequest{InstallationType: commerceInstallation, DrupalVersion: 11}}
+
+	_, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "commerce.modules"}, func(Event) {})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("calls = %#v", runner.calls)
+	}
+	call := runner.calls[0]
+	want := "drush en -y " + strings.Join(commerceModules(), " ")
+	if call.Name != "ddev" || call.Dir != plan.ProjectPath || strings.Join(call.Args, " ") != want {
+		t.Fatalf("commerce module command = %#v, want %q", call, want)
 	}
 }
 
@@ -751,6 +844,55 @@ func TestVerifyReportsEveryFailedCheck(t *testing.T) {
 	}
 }
 
+func TestVerifyCommerceChecksInstalledPackage(t *testing.T) {
+	parent := t.TempDir()
+	runner := &scriptedRunner{paths: installedTools(), onRun: func(request CommandRequest) CommandResult {
+		if len(request.Args) >= 2 && request.Args[0] == "describe" {
+			return CommandResult{Output: `{"raw":[{"https_url":"https://store.ddev.site"}]}`}
+		}
+		if len(request.Args) >= 2 && request.Args[0] == "drush" && request.Args[1] == "pm:list" {
+			return CommandResult{Output: strings.Join(commerceModules(), "\n")}
+		}
+		return CommandResult{}
+	}}
+	module := newTestModule(runner)
+	request := testRequest(parent)
+	request.InstallationType = commerceInstallation
+	plan, err := module.Plan(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, directory := range []string{
+		filepath.Join(plan.ProjectPath, ".ddev"),
+		filepath.Join(plan.ProjectPath, "web", "sites", "default"),
+	} {
+		if err := os.MkdirAll(directory, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{
+		filepath.Join(plan.ProjectPath, "composer.json"),
+		filepath.Join(plan.ProjectPath, "web", "sites", "default", "settings.ddev.php"),
+	} {
+		if err := os.WriteFile(path, []byte("{}"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := module.Verify(context.Background(), plan, nil)
+
+	if err != nil || result.Status != "succeeded" || result.SiteURL != "https://store.ddev.site" {
+		t.Fatalf("Verify() result = %#v, error = %v", result, err)
+	}
+	if len(result.Verification) != 6 || result.Verification[4].ID != "commerce.package" || !result.Verification[4].Passed || result.Verification[5].ID != "commerce.modules" || !result.Verification[5].Passed {
+		t.Fatalf("checks = %#v", result.Verification)
+	}
+	lastCall := runner.calls[len(runner.calls)-1]
+	if lastCall.Name != "ddev" || strings.Join(lastCall.Args, " ") != "drush pm:list --type=module --status=enabled --field=name" || lastCall.Dir != plan.ProjectPath {
+		t.Fatalf("commerce module verification command = %#v", lastCall)
+	}
+}
+
 func TestHelpersReturnStableFailureAndSiteData(t *testing.T) {
 	failure := installationFailure("step_failed", "project.create", "failed", true, "retry")
 	if failure.Error() != "failed" {
@@ -820,6 +962,37 @@ func TestNonInteractiveInstallNeverPrompts(t *testing.T) {
 
 	if exitCode != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "requires a terminal") {
 		t.Fatalf("runInstallCommand() exit = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
+	}
+}
+
+func TestNonInteractiveCommerceNeverPrompts(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	exitCode := runCommerceCommand(nil, strings.NewReader(""), &stdout, &stderr)
+
+	if exitCode != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "interactive commerce requires a terminal") {
+		t.Fatalf("runCommerceCommand() exit = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
+	}
+}
+
+func TestCommerceSubcommandHelpIsDiscoverable(t *testing.T) {
+	for _, test := range []struct {
+		command string
+		text    string
+	}{
+		{command: "plan", text: "--drupal-version 10|11"},
+		{command: "apply", text: "dropkit commerce apply"},
+		{command: "verify", text: "dropkit commerce verify"},
+	} {
+		t.Run(test.command, func(t *testing.T) {
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			exitCode := runCommerceCommand([]string{test.command, "--help"}, strings.NewReader(""), &stdout, &stderr)
+			if exitCode != 0 || !strings.Contains(stdout.String(), test.text) || stderr.Len() != 0 {
+				t.Fatalf("help exit = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
+			}
+		})
 	}
 }
 

@@ -166,6 +166,40 @@ func TestRunVerifyCommandUsesSavedPlanAndEventFormat(t *testing.T) {
 	}
 }
 
+func TestCommercePlanCommandSetsInstallationType(t *testing.T) {
+	module := &cliTestModule{planResult: InstallationPlan{PlanID: "commerce-plan"}}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	exitCode := runPlanCommandForType(context.Background(), module, commerceInstallation, []string{
+		"--name", "store",
+		"--parent", "/projects",
+		"--provider", "colima",
+		"--drupal-version", "10",
+	}, &stdout, &stderr)
+
+	if exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
+	}
+	if module.request.InstallationType != commerceInstallation || module.request.DrupalVersion != 10 {
+		t.Fatalf("request = %#v", module.request)
+	}
+}
+
+func TestCommerceCommandRejectsPlanForDrupalInstall(t *testing.T) {
+	plan := InstallationPlan{Request: InstallationRequest{InstallationType: drupalInstallation}}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	exitCode := runApplyCommandForType(context.Background(), &cliTestModule{}, commerceInstallation, []string{
+		"--plan", writeTestPlan(t, plan),
+	}, &stdout, &stderr)
+
+	if exitCode != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "plan is for drupal, not commerce") {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
+	}
+}
+
 func TestInstallCommandRejectsInvalidApplyAndVerifyInputs(t *testing.T) {
 	validPlanPath := writeTestPlan(t, InstallationPlan{})
 	invalidPlanPath := filepath.Join(t.TempDir(), "invalid.json")

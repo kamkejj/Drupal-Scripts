@@ -95,6 +95,30 @@ func TestInstallTUIBuildsPlanThroughGuidedFlow(t *testing.T) {
 	}
 }
 
+func TestCommerceTUIOffersDrupalTenAndEleven(t *testing.T) {
+	module := &tuiTestModule{plan: InstallationPlan{PlanID: "commerce-plan"}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	model := newInstallTUIModelForType(ctx, cancel, module, commerceInstallation, "/projects")
+	model.stage = installTUIVersion
+
+	view := model.View().Content
+	if !strings.Contains(view, "Drupal 10") || !strings.Contains(view, "Drupal 11") || strings.Contains(view, "Drupal 12") {
+		t.Fatalf("commerce version view = %q", view)
+	}
+	model.drupalVersion = minimumCommerceVersion
+	model.Update(tuiKey(tea.KeyUp, ""))
+	if model.drupalVersion != maximumCommerceVersion {
+		t.Fatalf("wrapped version = %d", model.drupalVersion)
+	}
+	model.projectName = "store"
+	message := model.planCommand()().(installPlanMsg)
+	model.Update(message)
+	if module.request.InstallationType != commerceInstallation || module.request.DrupalVersion != 11 {
+		t.Fatalf("request = %#v", module.request)
+	}
+}
+
 func TestInstallTUIRequiresExplicitApplyConfirmation(t *testing.T) {
 	plan := InstallationPlan{
 		PlanID:            "abc123",

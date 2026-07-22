@@ -1,9 +1,23 @@
 # Agent Guidelines for Drupal-Scripts
 
+## Agent skills
+
+### Issue tracker
+
+Issues use local Markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Triage uses the default role names. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository. See `docs/agents/domain.md`.
+
 ## Build Commands
-- Build binary: `go build -o dropkit` (creates binary in current directory)
-- Build for macOS: `go build -o binary/macos/dropkit`
-- Run: `./dropkit` or `go run .`
+- Build binary: `go build -o binary/macos/dropkit`
+- Always create new binaries at `binary/macos/dropkit`; never write a binary to the repository root
+- Run: `./binary/macos/dropkit` or `go run .`
 - Test: `go test ./...`
 - Vet: `go vet ./...`
 

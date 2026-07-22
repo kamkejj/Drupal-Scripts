@@ -25,10 +25,19 @@ var configIndicatorYML string
 var configSettingsYML string
 
 const (
-	installationSchemaVersion = "2"
+	installationSchemaVersion = "4"
 	defaultDrupalVersion      = 11
 	minimumDrupalVersion      = 8
 	maximumDrupalVersion      = 12
+	minimumCommerceVersion    = 10
+	maximumCommerceVersion    = 11
+)
+
+type InstallationType string
+
+const (
+	drupalInstallation   InstallationType = "drupal"
+	commerceInstallation InstallationType = "commerce"
 )
 
 type DockerProvider string
@@ -66,14 +75,15 @@ const (
 )
 
 type InstallationRequest struct {
-	SchemaVersion    string         `json:"schema_version"`
-	ProjectName      string         `json:"project_name"`
-	ParentDirectory  string         `json:"parent_directory"`
-	DockerProvider   DockerProvider `json:"docker_provider"`
-	DrupalVersion    int            `json:"drupal_version"`
-	GenerateContent  bool           `json:"generate_content"`
-	AdminUsername    string         `json:"admin_username"`
-	AdminPasswordEnv string         `json:"admin_password_env,omitempty"`
+	SchemaVersion    string           `json:"schema_version"`
+	InstallationType InstallationType `json:"installation_type"`
+	ProjectName      string           `json:"project_name"`
+	ParentDirectory  string           `json:"parent_directory"`
+	DockerProvider   DockerProvider   `json:"docker_provider"`
+	DrupalVersion    int              `json:"drupal_version"`
+	GenerateContent  bool             `json:"generate_content"`
+	AdminUsername    string           `json:"admin_username"`
+	AdminPasswordEnv string           `json:"admin_password_env,omitempty"`
 }
 
 type ToolState struct {
@@ -317,6 +327,12 @@ func (module *installationModule) Plan(ctx context.Context, request Installation
 
 func (module *installationModule) normalizeRequest(request InstallationRequest) (InstallationRequest, string, error) {
 	request.SchemaVersion = installationSchemaVersion
+	if request.InstallationType == "" {
+		request.InstallationType = drupalInstallation
+	}
+	if request.InstallationType != drupalInstallation && request.InstallationType != commerceInstallation {
+		return InstallationRequest{}, "", installationFailure("invalid_request", "", "installation type must be drupal or commerce", false, "use dropkit install or dropkit commerce")
+	}
 	request.ProjectName = strings.ToLower(strings.TrimSpace(request.ProjectName))
 	request.ProjectName = strings.ReplaceAll(request.ProjectName, " ", "-")
 	if request.ProjectName == "" {
@@ -336,6 +352,9 @@ func (module *installationModule) normalizeRequest(request InstallationRequest) 
 	}
 	if request.DrupalVersion < minimumDrupalVersion || request.DrupalVersion > maximumDrupalVersion {
 		return InstallationRequest{}, "", installationFailure("invalid_request", "", "Drupal version must be between 8 and 12", false, "provide --drupal-version with a major version from 8 through 12")
+	}
+	if request.InstallationType == commerceInstallation && (request.DrupalVersion < minimumCommerceVersion || request.DrupalVersion > maximumCommerceVersion) {
+		return InstallationRequest{}, "", installationFailure("invalid_request", "", "Drupal Commerce supports Drupal 10 or 11", false, "provide --drupal-version 10 or 11")
 	}
 	if strings.TrimSpace(request.ParentDirectory) == "" {
 		return InstallationRequest{}, "", installationFailure("invalid_request", "", "parent directory is required", false, "provide --parent")
@@ -452,6 +471,10 @@ func (module *installationModule) buildSteps(request InstallationRequest, inspec
 		appendStep(InstallationStep{ID: "drupal.sample_content", Summary: "Replace generated sample content", DependsOn: []string{"drupal.config"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess, effectDestructive}, Retry: retryManual})
 	} else {
 		appendStep(InstallationStep{ID: "drupal.sample_content", Summary: "Skip sample content", DependsOn: []string{"drupal.config"}, Disposition: dispositionNoOp, Retry: retrySafe})
+	}
+	if request.InstallationType == commerceInstallation {
+		appendStep(InstallationStep{ID: "commerce.dependencies", Summary: "Install Drupal Commerce", DependsOn: []string{"drupal.sample_content"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess, effectNetwork}, Retry: retryReconcile})
+		appendStep(InstallationStep{ID: "commerce.modules", Summary: "Enable Drupal Commerce modules", DependsOn: []string{"commerce.dependencies"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess}, Retry: retrySafe})
 	}
 	return steps
 }
@@ -608,6 +631,11 @@ func (module *installationModule) applyStep(ctx context.Context, plan Installati
 			return result, err
 		}
 		return run("ddev", []string{"drush", "genc", "25", "-y", "--kill", "--roles=content_editor", "--skip-fields=field_tags"}, plan.ProjectPath)
+	case "commerce.dependencies":
+		return run("ddev", []string{"composer", "require", "drupal/commerce:^3.3"}, plan.ProjectPath)
+	case "commerce.modules":
+		args := append([]string{"drush", "en", "-y"}, commerceModules()...)
+		return run("ddev", args, plan.ProjectPath)
 	default:
 		return CommandResult{}, fmt.Errorf("unknown installation step %s", step.ID)
 	}
@@ -669,6 +697,46 @@ func (module *installationModule) Verify(ctx context.Context, plan InstallationP
 	if ddevPassed {
 		result.SiteURL = siteURLFromDescribe(describe.Output)
 	}
+	if plan.Request.InstallationType == commerceInstallation {
+		commerce := module.runner.Run(ctx, CommandRequest{Name: "ddev", Args: []string{"composer", "show", "drupal/commerce"}, Dir: plan.ProjectPath})
+		commercePassed := commerce.Err == nil
+		if !commercePassed {
+			passed = false
+		}
+		message := "installed"
+		if !commercePassed {
+			message = strings.TrimSpace(commerce.Output)
+			if message == "" {
+				message = "missing"
+			}
+		}
+		result.Verification = append(result.Verification, VerificationCheck{ID: "commerce.package", Passed: commercePassed, Message: message})
+		modules := module.runner.Run(ctx, CommandRequest{Name: "ddev", Args: []string{"drush", "pm:list", "--type=module", "--status=enabled", "--field=name"}, Dir: plan.ProjectPath})
+		enabled := map[string]bool{}
+		for _, name := range strings.Fields(modules.Output) {
+			enabled[name] = true
+		}
+		missing := []string{}
+		for _, name := range commerceModules() {
+			if !enabled[name] {
+				missing = append(missing, name)
+			}
+		}
+		modulesPassed := modules.Err == nil && len(missing) == 0
+		if !modulesPassed {
+			passed = false
+		}
+		message = "enabled"
+		if modules.Err != nil {
+			message = strings.TrimSpace(modules.Output)
+			if message == "" {
+				message = "could not inspect enabled modules"
+			}
+		} else if len(missing) > 0 {
+			message = "missing enabled modules: " + strings.Join(missing, ", ")
+		}
+		result.Verification = append(result.Verification, VerificationCheck{ID: "commerce.modules", Passed: modulesPassed, Message: message})
+	}
 	if !passed {
 		failure := installationFailure("verification_failed", "", "installation verification failed", true, "inspect failed checks and create a new plan")
 		result.Failure = &failure
@@ -687,12 +755,20 @@ func validatePlan(plan InstallationPlan) *InstallationFailure {
 		failure := installationFailure("invalid_plan", "", "installation plan contains an unsupported Drupal version", false, "create a new plan with a Drupal version from 8 through 12")
 		return &failure
 	}
+	if plan.Request.InstallationType != drupalInstallation && plan.Request.InstallationType != commerceInstallation {
+		failure := installationFailure("invalid_plan", "", "installation plan contains an unsupported installation type", false, "create a new plan with dropkit install or dropkit commerce")
+		return &failure
+	}
+	if plan.Request.InstallationType == commerceInstallation && (plan.Request.DrupalVersion < minimumCommerceVersion || plan.Request.DrupalVersion > maximumCommerceVersion) {
+		failure := installationFailure("invalid_plan", "", "Drupal Commerce plan requires Drupal 10 or 11", false, "create a new Commerce plan with Drupal 10 or 11")
+		return &failure
+	}
 	digest, err := planDigest(plan)
 	if err != nil || digest != plan.Digest || plan.PlanID != plan.Digest[:12] {
 		failure := installationFailure("invalid_plan", "", "installation plan digest is invalid", false, "create a new plan")
 		return &failure
 	}
-	known := map[string]bool{"host.platform": true, "host.homebrew": true, "runtime.install": true, "runtime.start": true, "host.composer": true, "host.ddev": true, "project.create": true, "ddev.configure": true, "ddev.start": true, "drupal.dependencies": true, "drupal.settings": true, "drupal.site": true, "drupal.modules": true, "drupal.config": true, "drupal.sample_content": true}
+	known := map[string]bool{"host.platform": true, "host.homebrew": true, "runtime.install": true, "runtime.start": true, "host.composer": true, "host.ddev": true, "project.create": true, "ddev.configure": true, "ddev.start": true, "drupal.dependencies": true, "drupal.settings": true, "drupal.site": true, "drupal.modules": true, "drupal.config": true, "drupal.sample_content": true, "commerce.dependencies": true, "commerce.modules": true}
 	for _, step := range plan.Steps {
 		if !known[step.ID] {
 			failure := installationFailure("invalid_plan", step.ID, "installation plan contains an unknown step", false, "create a new plan")
@@ -721,6 +797,10 @@ func drupalEnabledModules(version int) []string {
 		return []string{"devel", "devel_generate", "environment_indicator", "environment_indicator_ui", "environment_indicator_toolbar", "token"}
 	}
 	return []string{"admin_toolbar", "config_split", "devel", "environment_indicator", "environment_indicator_ui", "environment_indicator_toolbar", "token", "pathauto", "config_ignore", "better_exposed_filters", "key", "webprofiler", "diff", "ultimate_cron", "devel_generate"}
+}
+
+func commerceModules() []string {
+	return []string{"commerce", "commerce_cart", "commerce_checkout", "commerce_order", "commerce_store", "commerce_price", "commerce_tax", "commerce_product", "commerce_payment"}
 }
 
 func planDigest(plan InstallationPlan) (string, error) {

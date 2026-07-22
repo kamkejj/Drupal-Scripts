@@ -64,37 +64,43 @@ func (sink installTUIEventSink) Emit(event Event) {
 }
 
 type installTUIModel struct {
-	ctx             context.Context
-	cancel          context.CancelFunc
-	module          InstallationModule
-	parent          string
-	stage           installTUIStage
-	provider        DockerProvider
-	drupalVersion   int
-	projectName     string
-	generateContent bool
-	plan            InstallationPlan
-	result          InstallationResult
-	err             error
-	status          string
-	events          []Event
-	spinner         int
-	width           int
-	height          int
-	cancelled       bool
-	send            func(tea.Msg)
+	ctx              context.Context
+	cancel           context.CancelFunc
+	module           InstallationModule
+	installationType InstallationType
+	parent           string
+	stage            installTUIStage
+	provider         DockerProvider
+	drupalVersion    int
+	projectName      string
+	generateContent  bool
+	plan             InstallationPlan
+	result           InstallationResult
+	err              error
+	status           string
+	events           []Event
+	spinner          int
+	width            int
+	height           int
+	cancelled        bool
+	send             func(tea.Msg)
 }
 
 func newInstallTUIModel(ctx context.Context, cancel context.CancelFunc, module InstallationModule, parent string) *installTUIModel {
+	return newInstallTUIModelForType(ctx, cancel, module, drupalInstallation, parent)
+}
+
+func newInstallTUIModelForType(ctx context.Context, cancel context.CancelFunc, module InstallationModule, installationType InstallationType, parent string) *installTUIModel {
 	return &installTUIModel{
-		ctx:           ctx,
-		cancel:        cancel,
-		module:        module,
-		parent:        parent,
-		provider:      colima,
-		drupalVersion: defaultDrupalVersion,
-		width:         80,
-		height:        24,
+		ctx:              ctx,
+		cancel:           cancel,
+		module:           module,
+		installationType: installationType,
+		parent:           parent,
+		provider:         colima,
+		drupalVersion:    defaultDrupalVersion,
+		width:            80,
+		height:           24,
 	}
 }
 
@@ -176,16 +182,17 @@ func (model *installTUIModel) handleKey(message tea.KeyPressMsg) (tea.Model, tea
 			model.stage = installTUIVersion
 		}
 	case installTUIVersion:
+		minimumVersion, maximumVersion := model.supportedVersions()
 		switch message.String() {
 		case "up", "left", "shift+tab":
 			model.drupalVersion--
-			if model.drupalVersion < minimumDrupalVersion {
-				model.drupalVersion = maximumDrupalVersion
+			if model.drupalVersion < minimumVersion {
+				model.drupalVersion = maximumVersion
 			}
 		case "down", "right", "tab", "space":
 			model.drupalVersion++
-			if model.drupalVersion > maximumDrupalVersion {
-				model.drupalVersion = minimumDrupalVersion
+			if model.drupalVersion > maximumVersion {
+				model.drupalVersion = minimumVersion
 			}
 		case "enter":
 			model.stage = installTUIProject
@@ -238,12 +245,13 @@ func (model *installTUIModel) handleKey(message tea.KeyPressMsg) (tea.Model, tea
 
 func (model *installTUIModel) planCommand() tea.Cmd {
 	request := InstallationRequest{
-		ProjectName:     model.projectName,
-		ParentDirectory: model.parent,
-		DockerProvider:  model.provider,
-		DrupalVersion:   model.drupalVersion,
-		GenerateContent: model.generateContent,
-		AdminUsername:   "admin",
+		InstallationType: model.installationType,
+		ProjectName:      model.projectName,
+		ParentDirectory:  model.parent,
+		DockerProvider:   model.provider,
+		DrupalVersion:    model.drupalVersion,
+		GenerateContent:  model.generateContent,
+		AdminUsername:    "admin",
 	}
 	return func() tea.Msg {
 		plan, err := model.module.Plan(model.ctx, request)
@@ -299,9 +307,14 @@ func (model *installTUIModel) View() tea.View {
 }
 
 func (model *installTUIModel) renderVersion(body *strings.Builder) {
+	minimumVersion, maximumVersion := model.supportedVersions()
 	body.WriteString(tuiBold + "  Choose a Drupal version" + tuiReset + "\n")
-	body.WriteString(tuiMuted + "  Supported major versions are 8 through 12." + tuiReset + "\n\n")
-	for version := minimumDrupalVersion; version <= maximumDrupalVersion; version++ {
+	versionDescription := "Supported major versions are 8 through 12."
+	if model.installationType == commerceInstallation {
+		versionDescription = "Drupal Commerce supports Drupal 10 and 11."
+	}
+	body.WriteString(tuiMuted + "  " + versionDescription + tuiReset + "\n\n")
+	for version := minimumVersion; version <= maximumVersion; version++ {
 		detail := ""
 		if version == defaultDrupalVersion {
 			detail = "Default"
@@ -359,7 +372,7 @@ func (model *installTUIModel) renderReview(body *strings.Builder) {
 	}
 	body.WriteString("  " + tuiGreen + "✓" + tuiReset + " " + tuiBold + "Installation plan" + tuiReset + tuiMuted + "  #" + model.plan.PlanID + tuiReset + "\n")
 	body.WriteString("  " + tuiMuted + model.plan.ProjectPath + tuiReset + "\n\n")
-	body.WriteString(fmt.Sprintf("  %sDrupal %d%s\n\n", tuiBold, model.plan.Request.DrupalVersion, tuiReset))
+	body.WriteString(fmt.Sprintf("  %s%s %d%s\n\n", tuiBold, model.productName(), model.plan.Request.DrupalVersion, tuiReset))
 	for _, step := range model.plan.Steps {
 		icon, color := "○", tuiMuted
 		switch step.Disposition {
@@ -386,7 +399,7 @@ func (model *installTUIModel) renderReview(body *strings.Builder) {
 
 func (model *installTUIModel) renderApply(body *strings.Builder) {
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	body.WriteString(fmt.Sprintf("  %s%s%s %sInstalling Drupal %d%s\n", tuiCyan, frames[model.spinner], tuiReset, tuiBold, model.plan.Request.DrupalVersion, tuiReset))
+	body.WriteString(fmt.Sprintf("  %s%s%s %sInstalling %s %d%s\n", tuiCyan, frames[model.spinner], tuiReset, tuiBold, model.productName(), model.plan.Request.DrupalVersion, tuiReset))
 	body.WriteString("  " + tuiMuted + trimForWidth(model.status, model.contentWidth()-2) + tuiReset + "\n\n")
 	for _, event := range model.events {
 		icon, color := "·", tuiMuted
@@ -402,7 +415,8 @@ func (model *installTUIModel) renderApply(body *strings.Builder) {
 
 func (model *installTUIModel) renderFinished(body *strings.Builder) {
 	if model.err != nil || model.result.Status != "succeeded" {
-		failure := installationFailure("internal_error", "", "installation did not complete", false, "run dropkit install again")
+		command := string(model.installationType)
+		failure := installationFailure("internal_error", "", "installation did not complete", false, "run dropkit "+command+" again")
 		if model.err != nil {
 			failure = failureFromError(model.err)
 		}
@@ -418,13 +432,27 @@ func (model *installTUIModel) renderFinished(body *strings.Builder) {
 			body.WriteString("  " + tuiYellow + "Recovery: " + tuiReset + failure.Recovery + "\n")
 		}
 	} else {
-		body.WriteString(fmt.Sprintf("  %s%s✓  Drupal %d is ready%s\n\n", tuiGreen, tuiBold, model.plan.Request.DrupalVersion, tuiReset))
+		body.WriteString(fmt.Sprintf("  %s%s✓  %s %d is ready%s\n\n", tuiGreen, tuiBold, model.productName(), model.plan.Request.DrupalVersion, tuiReset))
 		body.WriteString("  Project  " + model.result.ProjectPath + "\n")
 		if model.result.SiteURL != "" {
 			body.WriteString("  Site     " + tuiCyan + model.result.SiteURL + tuiReset + "\n")
 		}
 	}
 	model.renderFooter(body, "enter close")
+}
+
+func (model *installTUIModel) supportedVersions() (int, int) {
+	if model.installationType == commerceInstallation {
+		return minimumCommerceVersion, maximumCommerceVersion
+	}
+	return minimumDrupalVersion, maximumDrupalVersion
+}
+
+func (model *installTUIModel) productName() string {
+	if model.installationType == commerceInstallation {
+		return "Drupal Commerce"
+	}
+	return "Drupal"
 }
 
 func (model *installTUIModel) renderChoice(body *strings.Builder, selected bool, title, detail string) {
@@ -471,6 +499,10 @@ func trimForWidth(value string, width int) string {
 }
 
 func runInstallWizard(ctx context.Context, module InstallationModule, stdin io.Reader, stdout, stderr io.Writer) int {
+	return runInstallWizardForType(ctx, module, drupalInstallation, stdin, stdout, stderr)
+}
+
+func runInstallWizardForType(ctx context.Context, module InstallationModule, installationType InstallationType, stdin io.Reader, stdout, stderr io.Writer) int {
 	parent, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -478,7 +510,7 @@ func runInstallWizard(ctx context.Context, module InstallationModule, stdin io.R
 	}
 	wizardContext, cancel := context.WithCancel(ctx)
 	defer cancel()
-	model := newInstallTUIModel(wizardContext, cancel, module, parent)
+	model := newInstallTUIModelForType(wizardContext, cancel, module, installationType, parent)
 	program := tea.NewProgram(model, tea.WithContext(wizardContext), tea.WithInput(stdin), tea.WithOutput(stdout))
 	model.send = program.Send
 	if _, err := program.Run(); err != nil {

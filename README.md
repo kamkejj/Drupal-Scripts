@@ -61,6 +61,14 @@ Navigate to the parent directory where you want your Drupal project created and 
 
 4. **Review and authorize the plan** - The full-screen TUI shows every planned step and the network, host, or destructive effects requiring approval before anything is changed
 
+To create a Drupal Commerce project, use the Commerce installer and choose Drupal 10 or 11:
+
+```bash
+dropkit commerce
+```
+
+It runs the same Drupal installation and configuration workflow, installs `drupal/commerce:^3.3`, and enables the Commerce modules needed for stores, products, orders, carts, checkout, pricing, and tax.
+
 The interactive installer is built with [Bubble Tea](https://github.com/charmbracelet/bubbletea). Use the arrow keys or `Tab` to move, `Enter` to continue, and `Esc` to cancel. During installation, the TUI displays live semantic step events from the same installation module used by automated callers.
 
 **Note:** The tool will create the new Drupal project as a subdirectory of your current working directory.
@@ -102,6 +110,17 @@ dropkit install verify \
   --output json
 ```
 
+The Commerce command provides the same automation contract. Replace `install` with `commerce` in the plan, apply, and verify commands, and use `--drupal-version 10` or `--drupal-version 11`. Commerce verification checks both the package and enabled modules:
+
+```bash
+dropkit commerce plan \
+  --name my-store \
+  --parent "$PWD" \
+  --provider colima \
+  --drupal-version 11 \
+  --output json > dropkit-commerce-plan.json
+```
+
 In JSON mode, stdout contains one final JSON document. Progress and subprocess output are written to stderr; `--events jsonl` makes every stderr event machine-readable. A non-terminal `dropkit install` invocation never prompts and returns an error directing the caller to create a plan.
 
 `--drupal-version` is required for automated plans and accepts a major version from 8 through 12. The selected version is stored in the plan and controls both the Composer project constraint and DDEV project type. Until Drupal 12 has a stable release, selecting version 12 installs its development branch.
@@ -139,6 +158,8 @@ If a plan reports a blocker, resolve it and create a new plan. Docker Desktop mu
 13. **Enables development modules** - Automatically enables admin_toolbar, config_split, devel, and more
 14. **Imports configuration** - Imports environment indicator and other configs
 15. **Generates content (optional)** - Optionally generates sample users and content for testing
+
+The `commerce` command performs all of these steps, runs `ddev composer require 'drupal/commerce:^3.3'`, and enables `commerce`, `commerce_cart`, `commerce_checkout`, `commerce_order`, `commerce_store`, `commerce_price`, and `commerce_tax`.
 
 ## What gets installed
 
