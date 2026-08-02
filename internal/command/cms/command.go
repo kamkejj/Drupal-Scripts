@@ -3,6 +3,7 @@ package cms
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"dropkit/internal/installer"
 )
@@ -16,6 +17,15 @@ var config = installer.InstallationConfig{
 	FixedDrupalVersion:   11,
 	ProjectTemplate:      "drupal/cms",
 	BrowserInstaller:     true,
+	EnabledModules: []string{
+		"config",
+		"inline_form_errors",
+		"settings_tray",
+		"toolbar",
+		"syslog",
+		"workspaces",
+		"workspaces_ui",
+	},
 }
 
 var command = installer.NewCommand(config, PrintUsage)
@@ -38,6 +48,9 @@ func PrintUsage(writer io.Writer) {
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Project template:")
 	fmt.Fprintln(writer, "  drupal/cms (latest stable release)")
+	fmt.Fprintln(writer)
+	fmt.Fprintln(writer, "Enabled modules:")
+	fmt.Fprintln(writer, "  "+strings.Join(config.EnabledModules, ", "))
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Approvals:")
 	fmt.Fprintln(writer, "  --allow-network       Allow downloads")

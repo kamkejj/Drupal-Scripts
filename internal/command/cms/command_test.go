@@ -2,6 +2,7 @@ package cms
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -47,6 +48,7 @@ func TestUsageDescribesCMSWorkflow(t *testing.T) {
 }
 
 func TestInstallationConfigOwnsCMSPolicy(t *testing.T) {
+	wantModules := []string{"config", "inline_form_errors", "settings_tray", "toolbar", "syslog", "workspaces", "workspaces_ui"}
 	if config.CommandName != "cms" || config.Type != "cms" || config.ProductName != "Drupal CMS" {
 		t.Fatalf("identity config = %#v", config)
 	}
@@ -55,6 +57,9 @@ func TestInstallationConfigOwnsCMSPolicy(t *testing.T) {
 	}
 	if config.ProjectTemplate != "drupal/cms" || !config.BrowserInstaller {
 		t.Fatalf("workflow config = %#v", config)
+	}
+	if !slices.Equal(config.EnabledModules, wantModules) {
+		t.Fatalf("enabled modules = %#v, want %#v", config.EnabledModules, wantModules)
 	}
 }
 

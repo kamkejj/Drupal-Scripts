@@ -197,7 +197,7 @@ func TestCMSPlanUsesDistinctBrowserInstallerWorkflow(t *testing.T) {
 	if plan.Request.GenerateContent || plan.Request.AdminUsername != "" || plan.Request.AdminPasswordEnv != "" {
 		t.Fatalf("CMS plan retained core-only inputs: %#v", plan.Request)
 	}
-	for _, id := range []string{"project.create", "ddev.configure", "ddev.start", "cms.create", "cms.launch"} {
+	for _, id := range []string{"project.create", "ddev.configure", "ddev.start", "cms.create", "cms.launch", testCMSConfig.modulesStepID()} {
 		findStep(t, plan, id)
 	}
 	for _, step := range plan.Steps {
@@ -205,11 +205,69 @@ func TestCMSPlanUsesDistinctBrowserInstallerWorkflow(t *testing.T) {
 			t.Fatalf("CMS plan contains Drupal core workflow step %#v", step)
 		}
 	}
-	if plan.Steps[len(plan.Steps)-1].ID != "cms.launch" {
+	if plan.Steps[len(plan.Steps)-1].ID != testCMSConfig.modulesStepID() {
 		t.Fatalf("final step = %#v", plan.Steps[len(plan.Steps)-1])
 	}
 	if !containsEffect(plan.RequiredApprovals, effectNetwork) {
 		t.Fatalf("approvals = %#v", plan.RequiredApprovals)
+	}
+}
+
+func TestCMSPlanResumesExistingCMSProjectWithoutDownloadingAgain(t *testing.T) {
+	parent := t.TempDir()
+	projectPath := filepath.Join(parent, "agent-site")
+	if err := os.MkdirAll(projectPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := []byte(`{"require":{"drupal/drupal_cms_installer":"^2"}}`)
+	if err := os.WriteFile(filepath.Join(projectPath, "composer.json"), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	runner := &scriptedRunner{paths: installedTools()}
+	module := newTestModuleForConfig(runner, testCMSConfig)
+	request := testRequest(parent)
+	request.InstallationType = testCMSConfig.Type
+
+	plan, err := module.Plan(context.Background(), request)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Inspection.TargetState != "cms_project" {
+		t.Fatalf("target state = %q", plan.Inspection.TargetState)
+	}
+	if findStep(t, plan, "project.create").Disposition != dispositionNoOp || findStep(t, plan, "cms.create").Disposition != dispositionNoOp {
+		t.Fatalf("resume steps = %#v", plan.Steps)
+	}
+	if findStep(t, plan, testCMSConfig.modulesStepID()).Disposition != dispositionModify {
+		t.Fatalf("module step = %#v", findStep(t, plan, testCMSConfig.modulesStepID()))
+	}
+	if containsEffect(plan.RequiredApprovals, effectNetwork) {
+		t.Fatalf("resume approvals = %#v", plan.RequiredApprovals)
+	}
+}
+
+func TestCMSPlanRejectsExistingNonCMSComposerProject(t *testing.T) {
+	parent := t.TempDir()
+	projectPath := filepath.Join(parent, "agent-site")
+	if err := os.MkdirAll(projectPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectPath, "composer.json"), []byte(`{"name":"example/project"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runner := &scriptedRunner{paths: installedTools()}
+	module := newTestModuleForConfig(runner, testCMSConfig)
+	request := testRequest(parent)
+	request.InstallationType = testCMSConfig.Type
+
+	plan, err := module.Plan(context.Background(), request)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.Blocked || findStep(t, plan, "project.create").Disposition != dispositionBlocked {
+		t.Fatalf("plan = %#v", plan)
 	}
 }
 
@@ -446,7 +504,12 @@ func TestApplyUsesSelectedDrupalVersionForComposerAndDDEV(t *testing.T) {
 }
 
 func TestCMSApplyUsesDDEVProjectTemplateAndLaunchesAssistant(t *testing.T) {
-	runner := &scriptedRunner{paths: installedTools()}
+	runner := &scriptedRunner{paths: installedTools(), onRun: func(request CommandRequest) CommandResult {
+		if strings.Join(request.Args, " ") == "drush status --field=bootstrap --format=string" {
+			return CommandResult{Output: "Successful\n"}
+		}
+		return CommandResult{}
+	}}
 	module := newTestModuleForConfig(runner, testCMSConfig)
 	parent := t.TempDir()
 	projectPath := filepath.Join(parent, "cms-site")
@@ -459,7 +522,7 @@ func TestCMSApplyUsesDDEVProjectTemplateAndLaunchesAssistant(t *testing.T) {
 	}
 	emit := func(Event) {}
 
-	for _, id := range []string{"project.create", "ddev.configure", "ddev.start", "cms.create", "cms.launch"} {
+	for _, id := range []string{"project.create", "ddev.configure", "ddev.start", "cms.create", "cms.launch", testCMSConfig.modulesStepID()} {
 		if _, err := module.applyStep(context.Background(), plan, InstallationStep{ID: id}, emit); err != nil {
 			t.Fatalf("apply %s: %v", id, err)
 		}
@@ -473,6 +536,8 @@ func TestCMSApplyUsesDDEVProjectTemplateAndLaunchesAssistant(t *testing.T) {
 		"ddev start",
 		"ddev composer create-project drupal/cms",
 		"ddev launch",
+		"ddev drush status --field=bootstrap --format=string",
+		"ddev drush en -y " + strings.Join(testCMSConfig.EnabledModules, " "),
 	}
 	if len(runner.calls) != len(want) {
 		t.Fatalf("calls = %#v", runner.calls)
@@ -978,6 +1043,9 @@ func TestVerifyChecksDrupalCMSPackageWithoutInstalledSiteSettings(t *testing.T) 
 		if len(request.Args) >= 1 && request.Args[0] == "describe" {
 			return CommandResult{Output: `{"raw":[{"https_url":"https://cms.ddev.site"}]}`}
 		}
+		if len(request.Args) >= 2 && request.Args[0] == "drush" && request.Args[1] == "pm:list" {
+			return CommandResult{Output: strings.Join(testCMSConfig.EnabledModules, "\n")}
+		}
 		return CommandResult{}
 	}}
 	module := newTestModuleForConfig(runner, testCMSConfig)
@@ -999,12 +1067,12 @@ func TestVerifyChecksDrupalCMSPackageWithoutInstalledSiteSettings(t *testing.T) 
 	if err != nil || result.Status != "succeeded" || result.SiteURL != "https://cms.ddev.site" {
 		t.Fatalf("Verify() result = %#v, error = %v", result, err)
 	}
-	if len(result.Verification) != 4 || result.Verification[3].ID != "cms.package" || !result.Verification[3].Passed {
+	if len(result.Verification) != 5 || result.Verification[3].ID != "cms.package" || !result.Verification[3].Passed || result.Verification[4].ID != "cms.modules" || !result.Verification[4].Passed {
 		t.Fatalf("checks = %#v", result.Verification)
 	}
 	lastCall := runner.calls[len(runner.calls)-1]
-	if lastCall.Name != "ddev" || strings.Join(lastCall.Args, " ") != "composer show drupal/drupal_cms_installer" {
-		t.Fatalf("CMS verification command = %#v", lastCall)
+	if lastCall.Name != "ddev" || strings.Join(lastCall.Args, " ") != "drush pm:list --type=module --status=enabled --field=name" {
+		t.Fatalf("CMS module verification command = %#v", lastCall)
 	}
 }
 

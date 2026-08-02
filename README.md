@@ -75,7 +75,7 @@ To create a Drupal CMS project, use the separate CMS installer:
 dropkit cms
 ```
 
-The CMS workflow creates an empty project directory, configures DDEV for Drupal 11, downloads the latest stable `drupal/cms` project template inside DDEV, and launches Drupal CMS's browser-based setup assistant. Choose and configure the site template in the browser to finish setting up the site. It does not run the Drupal Core Standard-profile installation or add Dropkit's development modules and configuration.
+The CMS workflow creates an empty project directory, configures DDEV for Drupal 11, downloads the latest stable `drupal/cms` project template inside DDEV, and launches Drupal CMS's browser-based setup assistant. Choose and configure the site template in the browser to finish setting up the site. Dropkit waits for setup to finish, then enables `config`, `inline_form_errors`, `settings_tray`, `toolbar`, `syslog`, `workspaces`, and `workspaces_ui`. It does not run the Drupal Core Standard-profile installation or add Dropkit's other development modules and configuration.
 
 The interactive installer is built with [Bubble Tea](https://github.com/charmbracelet/bubbletea). Use the arrow keys or `Tab` to move, `Enter` to continue, and `Esc` to cancel. During installation, the TUI displays live semantic step events from the same installer module used by automated callers.
 
@@ -146,7 +146,7 @@ dropkit cms apply \
   --events jsonl
 ```
 
-Apply launches the browser-based Drupal CMS setup assistant. The command verifies the Composer project, DDEV environment, and Drupal CMS installer package; the user completes template selection and account setup in the browser.
+Apply launches the browser-based Drupal CMS setup assistant and waits up to 30 minutes for the user to complete template selection and account setup. It then enables the required modules. The command verifies the Composer project, DDEV environment, Drupal CMS installer package, and enabled module set.
 
 In JSON mode, stdout contains one final JSON document. Progress and subprocess output are written to stderr; `--events jsonl` makes every stderr event machine-readable. A non-terminal `dropkit install` invocation never prompts and returns an error directing the caller to create a plan.
 
@@ -188,7 +188,7 @@ If a plan reports a blocker, resolve it and create a new plan. Docker Desktop mu
 
 The `commerce` command performs all of these steps, runs `ddev composer require 'drupal/commerce:^3.3'`, and enables `commerce`, `commerce_cart`, `commerce_checkout`, `commerce_order`, `commerce_store`, `commerce_price`, and `commerce_tax`.
 
-The `cms` command instead creates a separate Drupal CMS project with `ddev composer create-project drupal/cms` and launches its browser setup assistant. None of the Drupal Core installation steps above run for this command.
+The `cms` command instead creates a separate Drupal CMS project with `ddev composer create-project drupal/cms`, launches its browser setup assistant, waits for setup to finish, and enables its required module set. None of the Drupal Core installation steps above run for this command.
 
 ## What gets installed
 

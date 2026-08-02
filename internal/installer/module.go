@@ -25,7 +25,7 @@ var configIndicatorYML string
 var configSettingsYML string
 
 const (
-	installationSchemaVersion = "5"
+	installationSchemaVersion = "6"
 	defaultDrupalVersion      = 11
 	minimumDrupalVersion      = 8
 	maximumDrupalVersion      = 12
@@ -417,6 +417,12 @@ func (module *installationModule) inspect(ctx context.Context, request Installat
 			inspection.TargetState = "directory"
 			if _, composerErr := module.files.Stat(filepath.Join(projectPath, "composer.json")); composerErr == nil {
 				inspection.TargetState = "project"
+				if module.config.BrowserInstaller {
+					content, readErr := module.files.ReadFile(filepath.Join(projectPath, "composer.json"))
+					if readErr == nil && strings.Contains(string(content), `"drupal/drupal_cms_installer"`) {
+						inspection.TargetState = "cms_project"
+					}
+				}
 			}
 		} else {
 			inspection.TargetState = "file"
@@ -478,7 +484,7 @@ func (module *installationModule) buildSteps(request InstallationRequest, inspec
 	appendToolStep("host.ddev", "ddev", "DDEV", "ddev/ddev/ddev")
 	projectDisposition := dispositionCreate
 	projectReason := ""
-	if inspection.TargetState == "project" {
+	if (inspection.TargetState == "project" && !module.config.BrowserInstaller) || inspection.TargetState == "cms_project" {
 		projectDisposition = dispositionNoOp
 	} else if inspection.TargetState != "absent" {
 		projectDisposition = dispositionBlocked
@@ -496,8 +502,17 @@ func (module *installationModule) buildSteps(request InstallationRequest, inspec
 	appendStep(InstallationStep{ID: "ddev.configure", Summary: fmt.Sprintf("Configure DDEV for Drupal %d", request.DrupalVersion), DependsOn: []string{"project.create", "host.ddev", "runtime.start"}, Disposition: dispositionCreate, Effects: []Effect{effectFilesystem, effectProcess}, Retry: retryReconcile})
 	appendStep(InstallationStep{ID: "ddev.start", Summary: "Start DDEV project", DependsOn: []string{"ddev.configure"}, Disposition: dispositionModify, Effects: []Effect{effectProcess}, Retry: retrySafe})
 	if module.config.BrowserInstaller {
-		appendStep(InstallationStep{ID: "cms.create", Summary: "Download Drupal CMS", DependsOn: []string{"ddev.start"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess, effectNetwork}, Retry: retryManual})
+		cmsDisposition := dispositionModify
+		cmsEffects := []Effect{effectFilesystem, effectProcess, effectNetwork}
+		if inspection.TargetState == "cms_project" {
+			cmsDisposition = dispositionNoOp
+			cmsEffects = nil
+		}
+		appendStep(InstallationStep{ID: "cms.create", Summary: "Download Drupal CMS", DependsOn: []string{"ddev.start"}, Disposition: cmsDisposition, Effects: cmsEffects, Retry: retryManual})
 		appendStep(InstallationStep{ID: "cms.launch", Summary: "Launch Drupal CMS setup assistant", DependsOn: []string{"cms.create"}, Disposition: dispositionModify, Effects: []Effect{effectProcess}, Retry: retrySafe})
+		if len(module.config.EnabledModules) > 0 {
+			appendStep(InstallationStep{ID: module.config.modulesStepID(), Summary: "Wait for setup and enable required Drupal CMS modules", DependsOn: []string{"cms.launch"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess}, Retry: retrySafe})
+		}
 		return steps
 	}
 	appendStep(InstallationStep{ID: "drupal.dependencies", Summary: "Install Drupal dependencies", DependsOn: []string{"ddev.start"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess, effectNetwork}, Retry: retryReconcile})
@@ -621,6 +636,24 @@ func (module *installationModule) applyStep(ctx context.Context, plan Installati
 		return run("ddev", args, plan.ProjectPath)
 	}
 	if step.ID == module.config.modulesStepID() && len(module.config.EnabledModules) > 0 {
+		if module.config.BrowserInstaller {
+			emit(Event{Type: "step_progress", Level: "info", StepID: step.ID, Message: "Waiting for the browser setup assistant to finish"})
+			waitContext, cancel := context.WithTimeout(ctx, 30*time.Minute)
+			defer cancel()
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+			for {
+				status := module.runner.Run(waitContext, CommandRequest{Name: "ddev", Args: []string{"drush", "status", "--field=bootstrap", "--format=string"}, Dir: plan.ProjectPath})
+				if status.Err == nil && strings.EqualFold(strings.TrimSpace(status.Output), "Successful") {
+					break
+				}
+				select {
+				case <-waitContext.Done():
+					return CommandResult{}, fmt.Errorf("Drupal CMS browser setup did not finish within 30 minutes")
+				case <-ticker.C:
+				}
+			}
+		}
 		args := append([]string{"drush", "en", "-y"}, module.config.EnabledModules...)
 		return run("ddev", args, plan.ProjectPath)
 	}

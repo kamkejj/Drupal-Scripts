@@ -27,4 +27,5 @@ var testCMSConfig = InstallationConfig{
 	FixedDrupalVersion:   11,
 	ProjectTemplate:      "drupal/cms",
 	BrowserInstaller:     true,
+	EnabledModules:       []string{"config", "inline_form_errors", "settings_tray", "toolbar", "syslog", "workspaces", "workspaces_ui"},
 }
