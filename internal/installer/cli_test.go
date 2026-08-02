@@ -186,6 +186,25 @@ func TestConfiguredPlanCommandSetsInstallationType(t *testing.T) {
 	}
 }
 
+func TestCMSPlanCommandUsesFixedDrupalVersion(t *testing.T) {
+	module := &cliTestModule{planResult: InstallationPlan{PlanID: "cms-plan"}}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	exitCode := runPlanCommandForConfig(context.Background(), module, testCMSConfig, []string{
+		"--name", "cms-site",
+		"--parent", "/projects",
+		"--provider", "colima",
+	}, &stdout, &stderr)
+
+	if exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
+	}
+	if module.request.InstallationType != testCMSConfig.Type || module.request.DrupalVersion != 11 || module.request.GenerateContent || module.request.AdminUsername != "" {
+		t.Fatalf("request = %#v", module.request)
+	}
+}
+
 func TestConfiguredCommandRejectsPlanForDifferentInstallation(t *testing.T) {
 	plan := InstallationPlan{Request: InstallationRequest{InstallationType: testDrupalConfig.Type}}
 	var stdout bytes.Buffer

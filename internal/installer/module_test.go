@@ -180,6 +180,39 @@ func TestConfiguredExtensionPlanReusesDrupalInstallAndAddsSteps(t *testing.T) {
 	}
 }
 
+func TestCMSPlanUsesDistinctBrowserInstallerWorkflow(t *testing.T) {
+	runner := &scriptedRunner{paths: installedTools()}
+	module := newTestModuleForConfig(runner, testCMSConfig)
+	request := testRequest(t.TempDir())
+	request.InstallationType = testCMSConfig.Type
+	request.GenerateContent = true
+	request.AdminUsername = "ignored"
+	request.AdminPasswordEnv = "IGNORED_PASSWORD"
+
+	plan, err := module.Plan(context.Background(), request)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Request.GenerateContent || plan.Request.AdminUsername != "" || plan.Request.AdminPasswordEnv != "" {
+		t.Fatalf("CMS plan retained core-only inputs: %#v", plan.Request)
+	}
+	for _, id := range []string{"project.create", "ddev.configure", "ddev.start", "cms.create", "cms.launch"} {
+		findStep(t, plan, id)
+	}
+	for _, step := range plan.Steps {
+		if step.ID == "host.composer" || strings.HasPrefix(step.ID, "drupal.") {
+			t.Fatalf("CMS plan contains Drupal core workflow step %#v", step)
+		}
+	}
+	if plan.Steps[len(plan.Steps)-1].ID != "cms.launch" {
+		t.Fatalf("final step = %#v", plan.Steps[len(plan.Steps)-1])
+	}
+	if !containsEffect(plan.RequiredApprovals, effectNetwork) {
+		t.Fatalf("approvals = %#v", plan.RequiredApprovals)
+	}
+}
+
 func TestConfiguredExtensionRejectsUnsupportedDrupalVersionsBeforeInspection(t *testing.T) {
 	for _, version := range []int{8, 9, 12} {
 		t.Run(fmt.Sprintf("Drupal%d", version), func(t *testing.T) {
@@ -409,6 +442,46 @@ func TestApplyUsesSelectedDrupalVersionForComposerAndDDEV(t *testing.T) {
 				t.Fatalf("DDEV args = %q", ddevArgs)
 			}
 		})
+	}
+}
+
+func TestCMSApplyUsesDDEVProjectTemplateAndLaunchesAssistant(t *testing.T) {
+	runner := &scriptedRunner{paths: installedTools()}
+	module := newTestModuleForConfig(runner, testCMSConfig)
+	parent := t.TempDir()
+	projectPath := filepath.Join(parent, "cms-site")
+	plan := InstallationPlan{
+		ProjectPath: projectPath,
+		Request: InstallationRequest{
+			ParentDirectory: parent,
+			DrupalVersion:   11,
+		},
+	}
+	emit := func(Event) {}
+
+	for _, id := range []string{"project.create", "ddev.configure", "ddev.start", "cms.create", "cms.launch"} {
+		if _, err := module.applyStep(context.Background(), plan, InstallationStep{ID: id}, emit); err != nil {
+			t.Fatalf("apply %s: %v", id, err)
+		}
+	}
+
+	if info, err := os.Stat(projectPath); err != nil || !info.IsDir() {
+		t.Fatalf("project directory: %v", err)
+	}
+	want := []string{
+		"ddev config --project-type=drupal11 --docroot=web",
+		"ddev start",
+		"ddev composer create-project drupal/cms",
+		"ddev launch",
+	}
+	if len(runner.calls) != len(want) {
+		t.Fatalf("calls = %#v", runner.calls)
+	}
+	for index, call := range runner.calls {
+		got := call.Name + " " + strings.Join(call.Args, " ")
+		if got != want[index] || call.Dir != projectPath {
+			t.Fatalf("call %d = %#v, want %q in %q", index, call, want[index], projectPath)
+		}
 	}
 }
 
@@ -896,6 +969,42 @@ func TestVerifyChecksConfiguredPackagesAndModules(t *testing.T) {
 	lastCall := runner.calls[len(runner.calls)-1]
 	if lastCall.Name != "ddev" || strings.Join(lastCall.Args, " ") != "drush pm:list --type=module --status=enabled --field=name" || lastCall.Dir != plan.ProjectPath {
 		t.Fatalf("configured module verification command = %#v", lastCall)
+	}
+}
+
+func TestVerifyChecksDrupalCMSPackageWithoutInstalledSiteSettings(t *testing.T) {
+	parent := t.TempDir()
+	runner := &scriptedRunner{paths: installedTools(), onRun: func(request CommandRequest) CommandResult {
+		if len(request.Args) >= 1 && request.Args[0] == "describe" {
+			return CommandResult{Output: `{"raw":[{"https_url":"https://cms.ddev.site"}]}`}
+		}
+		return CommandResult{}
+	}}
+	module := newTestModuleForConfig(runner, testCMSConfig)
+	request := testRequest(parent)
+	request.InstallationType = testCMSConfig.Type
+	plan, err := module.Plan(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(plan.ProjectPath, ".ddev"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plan.ProjectPath, "composer.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := module.Verify(context.Background(), plan, nil)
+
+	if err != nil || result.Status != "succeeded" || result.SiteURL != "https://cms.ddev.site" {
+		t.Fatalf("Verify() result = %#v, error = %v", result, err)
+	}
+	if len(result.Verification) != 4 || result.Verification[3].ID != "cms.package" || !result.Verification[3].Passed {
+		t.Fatalf("checks = %#v", result.Verification)
+	}
+	lastCall := runner.calls[len(runner.calls)-1]
+	if lastCall.Name != "ddev" || strings.Join(lastCall.Args, " ") != "composer show drupal/drupal_cms_installer" {
+		t.Fatalf("CMS verification command = %#v", lastCall)
 	}
 }
 

@@ -87,6 +87,10 @@ type installTUIModel struct {
 }
 
 func newInstallTUIModel(ctx context.Context, cancel context.CancelFunc, module InstallationModule, config InstallationConfig, parent string) *installTUIModel {
+	drupalVersion := min(defaultDrupalVersion, config.MaximumDrupalVersion)
+	if config.FixedDrupalVersion != 0 {
+		drupalVersion = config.FixedDrupalVersion
+	}
 	return &installTUIModel{
 		ctx:           ctx,
 		cancel:        cancel,
@@ -94,7 +98,7 @@ func newInstallTUIModel(ctx context.Context, cancel context.CancelFunc, module I
 		config:        config,
 		parent:        parent,
 		provider:      colima,
-		drupalVersion: min(defaultDrupalVersion, config.MaximumDrupalVersion),
+		drupalVersion: drupalVersion,
 		width:         80,
 		height:        24,
 	}
@@ -175,7 +179,11 @@ func (model *installTUIModel) handleKey(message tea.KeyPressMsg) (tea.Model, tea
 				model.provider = colima
 			}
 		case "enter":
-			model.stage = installTUIVersion
+			if model.config.FixedDrupalVersion != 0 {
+				model.stage = installTUIProject
+			} else {
+				model.stage = installTUIVersion
+			}
 		}
 	case installTUIVersion:
 		minimumVersion, maximumVersion := model.config.MinimumDrupalVersion, model.config.MaximumDrupalVersion
@@ -203,6 +211,10 @@ func (model *installTUIModel) handleKey(message tea.KeyPressMsg) (tea.Model, tea
 		case "enter":
 			if strings.TrimSpace(model.projectName) != "" {
 				model.status = ""
+				if model.config.BrowserInstaller {
+					model.stage = installTUIPlanning
+					return model, tea.Batch(model.planCommand(), installTUITick())
+				}
 				model.stage = installTUIContent
 			} else {
 				model.status = "Project name is required"
@@ -240,6 +252,10 @@ func (model *installTUIModel) handleKey(message tea.KeyPressMsg) (tea.Model, tea
 }
 
 func (model *installTUIModel) planCommand() tea.Cmd {
+	adminUsername := "admin"
+	if model.config.BrowserInstaller {
+		adminUsername = ""
+	}
 	request := InstallationRequest{
 		InstallationType: model.config.Type,
 		ProjectName:      model.projectName,
@@ -247,7 +263,7 @@ func (model *installTUIModel) planCommand() tea.Cmd {
 		DockerProvider:   model.provider,
 		DrupalVersion:    model.drupalVersion,
 		GenerateContent:  model.generateContent,
-		AdminUsername:    "admin",
+		AdminUsername:    adminUsername,
 	}
 	return func() tea.Msg {
 		plan, err := model.module.Plan(model.ctx, request)
@@ -365,7 +381,11 @@ func (model *installTUIModel) renderReview(body *strings.Builder) {
 	}
 	body.WriteString("  " + tuiGreen + "✓" + tuiReset + " " + tuiBold + "Installation plan" + tuiReset + tuiMuted + "  #" + model.plan.PlanID + tuiReset + "\n")
 	body.WriteString("  " + tuiMuted + model.plan.ProjectPath + tuiReset + "\n\n")
-	body.WriteString(fmt.Sprintf("  %s%s %d%s\n\n", tuiBold, model.config.ProductName, model.plan.Request.DrupalVersion, tuiReset))
+	product := fmt.Sprintf("%s %d", model.config.ProductName, model.plan.Request.DrupalVersion)
+	if model.config.BrowserInstaller {
+		product = model.config.ProductName
+	}
+	body.WriteString(fmt.Sprintf("  %s%s%s\n\n", tuiBold, product, tuiReset))
 	for _, step := range model.plan.Steps {
 		icon, color := "○", tuiMuted
 		switch step.Disposition {
@@ -392,7 +412,11 @@ func (model *installTUIModel) renderReview(body *strings.Builder) {
 
 func (model *installTUIModel) renderApply(body *strings.Builder) {
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	body.WriteString(fmt.Sprintf("  %s%s%s %sInstalling %s %d%s\n", tuiCyan, frames[model.spinner], tuiReset, tuiBold, model.config.ProductName, model.plan.Request.DrupalVersion, tuiReset))
+	product := fmt.Sprintf("%s %d", model.config.ProductName, model.plan.Request.DrupalVersion)
+	if model.config.BrowserInstaller {
+		product = model.config.ProductName
+	}
+	body.WriteString(fmt.Sprintf("  %s%s%s %sInstalling %s%s\n", tuiCyan, frames[model.spinner], tuiReset, tuiBold, product, tuiReset))
 	body.WriteString("  " + tuiMuted + trimForWidth(model.status, model.contentWidth()-2) + tuiReset + "\n\n")
 	for _, event := range model.events {
 		icon, color := "·", tuiMuted
@@ -425,7 +449,11 @@ func (model *installTUIModel) renderFinished(body *strings.Builder) {
 			body.WriteString("  " + tuiYellow + "Recovery: " + tuiReset + failure.Recovery + "\n")
 		}
 	} else {
-		body.WriteString(fmt.Sprintf("  %s%s✓  %s %d is ready%s\n\n", tuiGreen, tuiBold, model.config.ProductName, model.plan.Request.DrupalVersion, tuiReset))
+		if model.config.BrowserInstaller {
+			body.WriteString(fmt.Sprintf("  %s%s✓  %s setup assistant launched%s\n\n", tuiGreen, tuiBold, model.config.ProductName, tuiReset))
+		} else {
+			body.WriteString(fmt.Sprintf("  %s%s✓  %s %d is ready%s\n\n", tuiGreen, tuiBold, model.config.ProductName, model.plan.Request.DrupalVersion, tuiReset))
+		}
 		body.WriteString("  Project  " + model.result.ProjectPath + "\n")
 		if model.result.SiteURL != "" {
 			body.WriteString("  Site     " + tuiCyan + model.result.SiteURL + tuiReset + "\n")

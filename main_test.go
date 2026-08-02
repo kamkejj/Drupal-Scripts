@@ -30,6 +30,11 @@ func TestRunCLI(t *testing.T) {
 			stdoutText: "commerce   Install Drupal Commerce on Drupal 10 or 11",
 		},
 		{
+			name:       "cms in help",
+			args:       []string{"help"},
+			stdoutText: "cms        Install Drupal CMS and launch its setup assistant",
+		},
+		{
 			name:       "short help",
 			args:       []string{"-h"},
 			stdoutText: "Usage: dropkit <command>",
@@ -60,6 +65,16 @@ func TestRunCLI(t *testing.T) {
 			stdoutText: "drupal/commerce:^3.3",
 		},
 		{
+			name:       "cms help",
+			args:       []string{"cms", "--help"},
+			stdoutText: "dropkit cms plan",
+		},
+		{
+			name:       "help cms",
+			args:       []string{"help", "cms"},
+			stdoutText: "drupal/cms (latest stable release)",
+		},
+		{
 			name:       "commerce module help",
 			args:       []string{"help", "commerce"},
 			stdoutText: "commerce_store, commerce_price, commerce_tax",
@@ -87,6 +102,12 @@ func TestRunCLI(t *testing.T) {
 			args:       []string{"commerce", "project-name"},
 			exitCode:   2,
 			stderrText: `unknown commerce command "project-name"`,
+		},
+		{
+			name:       "unknown cms command",
+			args:       []string{"cms", "project-name"},
+			exitCode:   2,
+			stderrText: `unknown cms command "project-name"`,
 		},
 	}
 

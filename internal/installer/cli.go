@@ -75,10 +75,18 @@ func runPlanCommandForConfig(ctx context.Context, module InstallationModule, con
 	name := flags.String("name", "", "Drupal project name")
 	parent := flags.String("parent", "", "parent directory")
 	provider := flags.String("provider", "", "docker or colima")
-	drupalVersion := flags.Int("drupal-version", 0, "Drupal major version from 8 through 12")
-	generateContent := flags.Bool("generate-content", false, "generate sample content")
-	adminUsername := flags.String("admin-user", "admin", "Drupal administrator username")
-	adminPasswordEnv := flags.String("admin-password-env", "", "environment variable containing the Drupal administrator password")
+	drupalVersion := config.FixedDrupalVersion
+	generateContent := false
+	adminUsername := ""
+	adminPasswordEnv := ""
+	if config.FixedDrupalVersion == 0 {
+		flags.IntVar(&drupalVersion, "drupal-version", 0, "Drupal major version from 8 through 12")
+	}
+	if !config.BrowserInstaller {
+		flags.BoolVar(&generateContent, "generate-content", false, "generate sample content")
+		flags.StringVar(&adminUsername, "admin-user", "admin", "Drupal administrator username")
+		flags.StringVar(&adminPasswordEnv, "admin-password-env", "", "environment variable containing the Drupal administrator password")
+	}
 	output := flags.String("output", "human", "human or json")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return writeCommandFailure(stdout, stderr, *output, installationFailure("invalid_request", "", "invalid plan arguments", false, "run dropkit help "+config.CommandName))
@@ -91,10 +99,10 @@ func runPlanCommandForConfig(ctx context.Context, module InstallationModule, con
 		ProjectName:      *name,
 		ParentDirectory:  *parent,
 		DockerProvider:   DockerProvider(*provider),
-		DrupalVersion:    *drupalVersion,
-		GenerateContent:  *generateContent,
-		AdminUsername:    *adminUsername,
-		AdminPasswordEnv: *adminPasswordEnv,
+		DrupalVersion:    drupalVersion,
+		GenerateContent:  generateContent,
+		AdminUsername:    adminUsername,
+		AdminPasswordEnv: adminPasswordEnv,
 	})
 	if err != nil {
 		return writeCommandFailure(stdout, stderr, *output, failureFromError(err))
@@ -337,15 +345,26 @@ func validOutputFormat(format string) bool {
 
 func printPlanUsage(writer io.Writer, config InstallationConfig) {
 	versions := strings.ReplaceAll(versionChoices(config.MinimumDrupalVersion, config.MaximumDrupalVersion), " or ", "|")
-	fmt.Fprintf(writer, "Usage: dropkit %s plan --name NAME --parent DIR --provider docker|colima --drupal-version %s [options]\n", config.CommandName, versions)
+	fmt.Fprintf(writer, "Usage: dropkit %s plan --name NAME --parent DIR --provider docker|colima", config.CommandName)
+	if config.FixedDrupalVersion == 0 {
+		fmt.Fprintf(writer, " --drupal-version %s", versions)
+	}
+	fmt.Fprintln(writer, " [options]")
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Required inputs:")
-	fmt.Fprintf(writer, "  --drupal-version VERSION   Drupal major version %s\n", versionRange(config.MinimumDrupalVersion, config.MaximumDrupalVersion))
+	fmt.Fprintln(writer, "  --name NAME                Drupal project name")
+	fmt.Fprintln(writer, "  --parent DIR               Parent directory")
+	fmt.Fprintln(writer, "  --provider docker|colima   Container runtime")
+	if config.FixedDrupalVersion == 0 {
+		fmt.Fprintf(writer, "  --drupal-version VERSION   Drupal major version %s\n", versionRange(config.MinimumDrupalVersion, config.MaximumDrupalVersion))
+	}
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Read-only options:")
-	fmt.Fprintln(writer, "  --generate-content          Include destructive sample-content generation")
-	fmt.Fprintln(writer, "  --admin-user NAME           Drupal administrator username (default: admin)")
-	fmt.Fprintln(writer, "  --admin-password-env NAME   Environment variable containing the administrator password")
+	if !config.BrowserInstaller {
+		fmt.Fprintln(writer, "  --generate-content          Include destructive sample-content generation")
+		fmt.Fprintln(writer, "  --admin-user NAME           Drupal administrator username (default: admin)")
+		fmt.Fprintln(writer, "  --admin-password-env NAME   Environment variable containing the administrator password")
+	}
 	fmt.Fprintln(writer, "  --output human|json         Output format (default: human)")
 }
 

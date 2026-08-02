@@ -17,3 +17,14 @@ var testExtensionConfig = InstallationConfig{
 	ComposerPackages:     []string{"drupal/store:^1.0"},
 	EnabledModules:       []string{"store", "store_cart"},
 }
+
+var testCMSConfig = InstallationConfig{
+	CommandName:          "cms",
+	Type:                 "cms",
+	ProductName:          "Drupal CMS",
+	MinimumDrupalVersion: 11,
+	MaximumDrupalVersion: 11,
+	FixedDrupalVersion:   11,
+	ProjectTemplate:      "drupal/cms",
+	BrowserInstaller:     true,
+}

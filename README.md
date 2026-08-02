@@ -69,6 +69,14 @@ dropkit commerce
 
 It runs the same Drupal installation and configuration workflow, installs `drupal/commerce:^3.3`, and enables the Commerce modules needed for stores, products, orders, carts, checkout, pricing, and tax.
 
+To create a Drupal CMS project, use the separate CMS installer:
+
+```bash
+dropkit cms
+```
+
+The CMS workflow creates an empty project directory, configures DDEV for Drupal 11, downloads the latest stable `drupal/cms` project template inside DDEV, and launches Drupal CMS's browser-based setup assistant. Choose and configure the site template in the browser to finish setting up the site. It does not run the Drupal Core Standard-profile installation or add Dropkit's development modules and configuration.
+
 The interactive installer is built with [Bubble Tea](https://github.com/charmbracelet/bubbletea). Use the arrow keys or `Tab` to move, `Enter` to continue, and `Esc` to cancel. During installation, the TUI displays live semantic step events from the same installer module used by automated callers.
 
 **Note:** The tool will create the new Drupal project as a subdirectory of your current working directory.
@@ -121,9 +129,28 @@ dropkit commerce plan \
   --output json > dropkit-commerce-plan.json
 ```
 
+Drupal CMS uses the same Plan/Apply/Verify contract with Drupal 11 fixed by the CMS project template, so it does not accept `--drupal-version`:
+
+```bash
+dropkit cms plan \
+  --name my-cms-site \
+  --parent "$PWD" \
+  --provider colima \
+  --output json > dropkit-cms-plan.json
+
+dropkit cms apply \
+  --plan dropkit-cms-plan.json \
+  --allow-network \
+  --allow-host-changes \
+  --output json \
+  --events jsonl
+```
+
+Apply launches the browser-based Drupal CMS setup assistant. The command verifies the Composer project, DDEV environment, and Drupal CMS installer package; the user completes template selection and account setup in the browser.
+
 In JSON mode, stdout contains one final JSON document. Progress and subprocess output are written to stderr; `--events jsonl` makes every stderr event machine-readable. A non-terminal `dropkit install` invocation never prompts and returns an error directing the caller to create a plan.
 
-`--drupal-version` is required for automated plans and accepts a major version from 8 through 12. The selected version is stored in the plan and controls both the Composer project constraint and DDEV project type. Until Drupal 12 has a stable release, selecting version 12 installs its development branch.
+`--drupal-version` is required for Drupal Core and Commerce automated plans and accepts a supported major version for the selected command. The selected version is stored in the plan and controls both the Composer project constraint and DDEV project type. Drupal CMS fixes this value to Drupal 11 internally. Until Drupal 12 has a stable release, selecting version 12 installs its development branch.
 
 Plans contain stable semantic step IDs, effect classifications, retry guidance, and a digest. They do not contain executable shell commands or password values. Applying a plan fails before mutation when required authorization is missing, the plan has been altered, or inspected host state has changed.
 
@@ -160,6 +187,8 @@ If a plan reports a blocker, resolve it and create a new plan. Docker Desktop mu
 15. **Generates content (optional)** - Optionally generates sample users and content for testing
 
 The `commerce` command performs all of these steps, runs `ddev composer require 'drupal/commerce:^3.3'`, and enables `commerce`, `commerce_cart`, `commerce_checkout`, `commerce_order`, `commerce_store`, `commerce_price`, and `commerce_tax`.
+
+The `cms` command instead creates a separate Drupal CMS project with `ddev composer create-project drupal/cms` and launches its browser setup assistant. None of the Drupal Core installation steps above run for this command.
 
 ## What gets installed
 

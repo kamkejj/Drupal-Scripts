@@ -25,7 +25,7 @@ var configIndicatorYML string
 var configSettingsYML string
 
 const (
-	installationSchemaVersion = "4"
+	installationSchemaVersion = "5"
 	defaultDrupalVersion      = 11
 	minimumDrupalVersion      = 8
 	maximumDrupalVersion      = 12
@@ -39,6 +39,9 @@ type InstallationConfig struct {
 	ProductName          string
 	MinimumDrupalVersion int
 	MaximumDrupalVersion int
+	FixedDrupalVersion   int
+	ProjectTemplate      string
+	BrowserInstaller     bool
 	ComposerPackages     []string
 	EnabledModules       []string
 }
@@ -376,7 +379,11 @@ func (module *installationModule) normalizeRequest(request InstallationRequest) 
 		return InstallationRequest{}, "", installationFailure("invalid_request", "", "could not resolve parent directory", false, "provide an accessible parent directory")
 	}
 	request.ParentDirectory = filepath.Clean(parent)
-	if request.AdminUsername == "" {
+	if module.config.BrowserInstaller {
+		request.GenerateContent = false
+		request.AdminUsername = ""
+		request.AdminPasswordEnv = ""
+	} else if request.AdminUsername == "" {
 		request.AdminUsername = "admin"
 	}
 	projectPath := filepath.Join(request.ParentDirectory, request.ProjectName)
@@ -390,7 +397,11 @@ func (module *installationModule) inspect(ctx context.Context, request Installat
 		Tools:        map[string]ToolState{},
 		TargetState:  "absent",
 	}
-	for _, tool := range []string{"brew", "docker", "colima", "ddev", "composer"} {
+	tools := []string{"brew", "docker", "colima", "ddev"}
+	if !module.config.BrowserInstaller {
+		tools = append(tools, "composer")
+	}
+	for _, tool := range tools {
 		path, err := module.runner.LookPath(tool)
 		inspection.Tools[tool] = ToolState{Installed: err == nil, Path: path}
 	}
@@ -461,7 +472,9 @@ func (module *installationModule) buildSteps(request InstallationRequest, inspec
 		}
 		appendStep(InstallationStep{ID: id, Summary: "Install " + summary, DependsOn: []string{"host.homebrew"}, Disposition: dispositionCreate, Effects: []Effect{effectProcess, effectNetwork, effectHostChange}, Retry: retryReconcile, Reason: formula})
 	}
-	appendToolStep("host.composer", "composer", "Composer", "composer")
+	if !module.config.BrowserInstaller {
+		appendToolStep("host.composer", "composer", "Composer", "composer")
+	}
 	appendToolStep("host.ddev", "ddev", "DDEV", "ddev/ddev/ddev")
 	projectDisposition := dispositionCreate
 	projectReason := ""
@@ -471,9 +484,22 @@ func (module *installationModule) buildSteps(request InstallationRequest, inspec
 		projectDisposition = dispositionBlocked
 		projectReason = "the project target already exists"
 	}
-	appendStep(InstallationStep{ID: "project.create", Summary: fmt.Sprintf("Create Drupal %d project", request.DrupalVersion), DependsOn: []string{"host.composer"}, Disposition: projectDisposition, Effects: []Effect{effectFilesystem, effectProcess, effectNetwork}, Retry: retryReconcile, Reason: projectReason})
+	projectDependencies := []string{"host.composer"}
+	projectEffects := []Effect{effectFilesystem, effectProcess, effectNetwork}
+	projectSummary := fmt.Sprintf("Create Drupal %d project", request.DrupalVersion)
+	if module.config.BrowserInstaller {
+		projectDependencies = []string{"host.ddev"}
+		projectEffects = []Effect{effectFilesystem}
+		projectSummary = "Create " + module.config.ProductName + " project directory"
+	}
+	appendStep(InstallationStep{ID: "project.create", Summary: projectSummary, DependsOn: projectDependencies, Disposition: projectDisposition, Effects: projectEffects, Retry: retryReconcile, Reason: projectReason})
 	appendStep(InstallationStep{ID: "ddev.configure", Summary: fmt.Sprintf("Configure DDEV for Drupal %d", request.DrupalVersion), DependsOn: []string{"project.create", "host.ddev", "runtime.start"}, Disposition: dispositionCreate, Effects: []Effect{effectFilesystem, effectProcess}, Retry: retryReconcile})
 	appendStep(InstallationStep{ID: "ddev.start", Summary: "Start DDEV project", DependsOn: []string{"ddev.configure"}, Disposition: dispositionModify, Effects: []Effect{effectProcess}, Retry: retrySafe})
+	if module.config.BrowserInstaller {
+		appendStep(InstallationStep{ID: "cms.create", Summary: "Download Drupal CMS", DependsOn: []string{"ddev.start"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess, effectNetwork}, Retry: retryManual})
+		appendStep(InstallationStep{ID: "cms.launch", Summary: "Launch Drupal CMS setup assistant", DependsOn: []string{"cms.create"}, Disposition: dispositionModify, Effects: []Effect{effectProcess}, Retry: retrySafe})
+		return steps
+	}
 	appendStep(InstallationStep{ID: "drupal.dependencies", Summary: "Install Drupal dependencies", DependsOn: []string{"ddev.start"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess, effectNetwork}, Retry: retryReconcile})
 	appendStep(InstallationStep{ID: "drupal.settings", Summary: "Write Drupal development settings", DependsOn: []string{"drupal.dependencies"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem}, Retry: retrySafe})
 	appendStep(InstallationStep{ID: "drupal.site", Summary: "Install Drupal site", DependsOn: []string{"drupal.settings"}, Disposition: dispositionCreate, Effects: []Effect{effectFilesystem, effectProcess}, Retry: retryReconcile})
@@ -612,11 +638,22 @@ func (module *installationModule) applyStep(ctx context.Context, plan Installati
 	case "host.ddev":
 		return run("brew", []string{"install", "ddev/ddev/ddev"}, "")
 	case "project.create":
+		if module.config.BrowserInstaller {
+			return CommandResult{}, module.files.MkdirAll(plan.ProjectPath, 0755)
+		}
 		return run("composer", []string{"create-project", "drupal/recommended-project:" + drupalProjectConstraint(plan.Request.DrupalVersion), plan.ProjectPath}, plan.Request.ParentDirectory)
 	case "ddev.configure":
-		return run("ddev", []string{"config", fmt.Sprintf("--project-type=drupal%d", plan.Request.DrupalVersion), "--docroot=web", "--create-docroot"}, plan.ProjectPath)
+		args := []string{"config", fmt.Sprintf("--project-type=drupal%d", plan.Request.DrupalVersion), "--docroot=web"}
+		if !module.config.BrowserInstaller {
+			args = append(args, "--create-docroot")
+		}
+		return run("ddev", args, plan.ProjectPath)
 	case "ddev.start":
 		return run("ddev", []string{"start"}, plan.ProjectPath)
+	case "cms.create":
+		return run("ddev", []string{"composer", "create-project", module.config.ProjectTemplate}, plan.ProjectPath)
+	case "cms.launch":
+		return run("ddev", []string{"launch"}, plan.ProjectPath)
 	case "drupal.dependencies":
 		contribCommand := append([]string{"composer", "require"}, drupalContribPackages(plan.Request.DrupalVersion)...)
 		commands := [][]string{
@@ -692,7 +729,12 @@ func (module *installationModule) Verify(ctx context.Context, plan InstallationP
 	}{
 		{id: "project.composer", path: filepath.Join(plan.ProjectPath, "composer.json")},
 		{id: "project.ddev", path: filepath.Join(plan.ProjectPath, ".ddev")},
-		{id: "drupal.settings", path: filepath.Join(plan.ProjectPath, "web", "sites", "default", "settings.ddev.php")},
+	}
+	if !module.config.BrowserInstaller {
+		checks = append(checks, struct {
+			id   string
+			path string
+		}{id: "drupal.settings", path: filepath.Join(plan.ProjectPath, "web", "sites", "default", "settings.ddev.php")})
 	}
 	passed := true
 	for _, check := range checks {
@@ -715,6 +757,21 @@ func (module *installationModule) Verify(ctx context.Context, plan InstallationP
 	result.Verification = append(result.Verification, VerificationCheck{ID: "ddev.describe", Passed: ddevPassed, Message: strings.TrimSpace(describe.Output)})
 	if ddevPassed {
 		result.SiteURL = siteURLFromDescribe(describe.Output)
+	}
+	if module.config.BrowserInstaller {
+		packageResult := module.runner.Run(ctx, CommandRequest{Name: "ddev", Args: []string{"composer", "show", "drupal/drupal_cms_installer"}, Dir: plan.ProjectPath})
+		packagePassed := packageResult.Err == nil
+		if !packagePassed {
+			passed = false
+		}
+		message := "installed"
+		if !packagePassed {
+			message = strings.TrimSpace(packageResult.Output)
+			if message == "" {
+				message = "missing"
+			}
+		}
+		result.Verification = append(result.Verification, VerificationCheck{ID: "cms.package", Passed: packagePassed, Message: message})
 	}
 	for _, packageName := range module.config.ComposerPackages {
 		packageResult := module.runner.Run(ctx, CommandRequest{Name: "ddev", Args: []string{"composer", "show", packageNameWithoutConstraint(packageName)}, Dir: plan.ProjectPath})
@@ -789,7 +846,7 @@ func (module *installationModule) validatePlan(plan InstallationPlan) *Installat
 		failure := installationFailure("invalid_plan", "", "installation plan digest is invalid", false, "create a new plan")
 		return &failure
 	}
-	known := map[string]bool{"host.platform": true, "host.homebrew": true, "runtime.install": true, "runtime.start": true, "host.composer": true, "host.ddev": true, "project.create": true, "ddev.configure": true, "ddev.start": true, "drupal.dependencies": true, "drupal.settings": true, "drupal.site": true, "drupal.modules": true, "drupal.config": true, "drupal.sample_content": true}
+	known := map[string]bool{"host.platform": true, "host.homebrew": true, "runtime.install": true, "runtime.start": true, "host.composer": true, "host.ddev": true, "project.create": true, "ddev.configure": true, "ddev.start": true, "drupal.dependencies": true, "drupal.settings": true, "drupal.site": true, "drupal.modules": true, "drupal.config": true, "drupal.sample_content": true, "cms.create": true, "cms.launch": true}
 	if len(module.config.ComposerPackages) > 0 {
 		known[module.config.dependencyStepID()] = true
 	}

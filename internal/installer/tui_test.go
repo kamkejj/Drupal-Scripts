@@ -119,6 +119,28 @@ func TestConfiguredTUIOffersConfiguredDrupalVersions(t *testing.T) {
 	}
 }
 
+func TestCMSTUISkipsCoreVersionAndContentChoices(t *testing.T) {
+	module := &tuiTestModule{plan: InstallationPlan{PlanID: "cms-plan"}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	model := newInstallTUIModel(ctx, cancel, module, testCMSConfig, "/projects")
+
+	model.Update(tuiKey(tea.KeyEnter, ""))
+	if model.stage != installTUIProject {
+		t.Fatalf("stage = %d, want project", model.stage)
+	}
+	model.projectName = "cms-site"
+	_, command := model.Update(tuiKey(tea.KeyEnter, ""))
+	if model.stage != installTUIPlanning || command == nil {
+		t.Fatalf("stage = %d, command = %#v", model.stage, command)
+	}
+	commands := command().(tea.BatchMsg)
+	model.Update(commands[0]())
+	if module.request.DrupalVersion != 11 || module.request.GenerateContent || module.request.AdminUsername != "" {
+		t.Fatalf("request = %#v", module.request)
+	}
+}
+
 func TestInstallTUIRequiresExplicitApplyConfirmation(t *testing.T) {
 	plan := InstallationPlan{
 		PlanID:            "abc123",
