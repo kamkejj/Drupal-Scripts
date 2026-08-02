@@ -1,4 +1,4 @@
-package main
+package installation
 
 import (
 	"context"
@@ -29,16 +29,27 @@ const (
 	defaultDrupalVersion      = 11
 	minimumDrupalVersion      = 8
 	maximumDrupalVersion      = 12
-	minimumCommerceVersion    = 10
-	maximumCommerceVersion    = 11
 )
 
 type InstallationType string
 
-const (
-	drupalInstallation   InstallationType = "drupal"
-	commerceInstallation InstallationType = "commerce"
-)
+type InstallationConfig struct {
+	CommandName          string
+	Type                 InstallationType
+	ProductName          string
+	MinimumDrupalVersion int
+	MaximumDrupalVersion int
+	ComposerPackages     []string
+	EnabledModules       []string
+}
+
+func (config InstallationConfig) dependencyStepID() string {
+	return string(config.Type) + ".dependencies"
+}
+
+func (config InstallationConfig) modulesStepID() string {
+	return string(config.Type) + ".modules"
+}
 
 type DockerProvider string
 
@@ -262,16 +273,17 @@ type InstallationModule interface {
 type installationModule struct {
 	runner       CommandRunner
 	files        FileSystem
+	config       InstallationConfig
 	platform     string
 	architecture string
 }
 
-func newInstallationModule(runner CommandRunner, files FileSystem) InstallationModule {
-	return &installationModule{runner: runner, files: files, platform: runtime.GOOS, architecture: runtime.GOARCH}
+func newInstallationModule(runner CommandRunner, files FileSystem, config InstallationConfig) InstallationModule {
+	return &installationModule{runner: runner, files: files, config: config, platform: runtime.GOOS, architecture: runtime.GOARCH}
 }
 
-func newProductionInstallationModule() InstallationModule {
-	return newInstallationModule(execCommandRunner{}, osFileSystem{})
+func newProductionInstallationModule(config InstallationConfig) InstallationModule {
+	return newInstallationModule(execCommandRunner{}, osFileSystem{}, config)
 }
 
 func (module *installationModule) Plan(ctx context.Context, request InstallationRequest) (InstallationPlan, error) {
@@ -328,10 +340,10 @@ func (module *installationModule) Plan(ctx context.Context, request Installation
 func (module *installationModule) normalizeRequest(request InstallationRequest) (InstallationRequest, string, error) {
 	request.SchemaVersion = installationSchemaVersion
 	if request.InstallationType == "" {
-		request.InstallationType = drupalInstallation
+		request.InstallationType = module.config.Type
 	}
-	if request.InstallationType != drupalInstallation && request.InstallationType != commerceInstallation {
-		return InstallationRequest{}, "", installationFailure("invalid_request", "", "installation type must be drupal or commerce", false, "use dropkit install or dropkit commerce")
+	if request.InstallationType != module.config.Type {
+		return InstallationRequest{}, "", installationFailure("invalid_request", "", fmt.Sprintf("installation type must be %s", module.config.Type), false, "use the command that matches the requested installation type")
 	}
 	request.ProjectName = strings.ToLower(strings.TrimSpace(request.ProjectName))
 	request.ProjectName = strings.ReplaceAll(request.ProjectName, " ", "-")
@@ -353,8 +365,8 @@ func (module *installationModule) normalizeRequest(request InstallationRequest) 
 	if request.DrupalVersion < minimumDrupalVersion || request.DrupalVersion > maximumDrupalVersion {
 		return InstallationRequest{}, "", installationFailure("invalid_request", "", "Drupal version must be between 8 and 12", false, "provide --drupal-version with a major version from 8 through 12")
 	}
-	if request.InstallationType == commerceInstallation && (request.DrupalVersion < minimumCommerceVersion || request.DrupalVersion > maximumCommerceVersion) {
-		return InstallationRequest{}, "", installationFailure("invalid_request", "", "Drupal Commerce supports Drupal 10 or 11", false, "provide --drupal-version 10 or 11")
+	if request.DrupalVersion < module.config.MinimumDrupalVersion || request.DrupalVersion > module.config.MaximumDrupalVersion {
+		return InstallationRequest{}, "", installationFailure("invalid_request", "", fmt.Sprintf("%s supports Drupal %s", module.config.ProductName, versionRange(module.config.MinimumDrupalVersion, module.config.MaximumDrupalVersion)), false, fmt.Sprintf("provide --drupal-version %s", versionChoices(module.config.MinimumDrupalVersion, module.config.MaximumDrupalVersion)))
 	}
 	if strings.TrimSpace(request.ParentDirectory) == "" {
 		return InstallationRequest{}, "", installationFailure("invalid_request", "", "parent directory is required", false, "provide --parent")
@@ -472,9 +484,13 @@ func (module *installationModule) buildSteps(request InstallationRequest, inspec
 	} else {
 		appendStep(InstallationStep{ID: "drupal.sample_content", Summary: "Skip sample content", DependsOn: []string{"drupal.config"}, Disposition: dispositionNoOp, Retry: retrySafe})
 	}
-	if request.InstallationType == commerceInstallation {
-		appendStep(InstallationStep{ID: "commerce.dependencies", Summary: "Install Drupal Commerce", DependsOn: []string{"drupal.sample_content"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess, effectNetwork}, Retry: retryReconcile})
-		appendStep(InstallationStep{ID: "commerce.modules", Summary: "Enable Drupal Commerce modules", DependsOn: []string{"commerce.dependencies"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess}, Retry: retrySafe})
+	lastStepID := "drupal.sample_content"
+	if len(module.config.ComposerPackages) > 0 {
+		lastStepID = module.config.dependencyStepID()
+		appendStep(InstallationStep{ID: lastStepID, Summary: "Install " + module.config.ProductName, DependsOn: []string{"drupal.sample_content"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess, effectNetwork}, Retry: retryReconcile})
+	}
+	if len(module.config.EnabledModules) > 0 {
+		appendStep(InstallationStep{ID: module.config.modulesStepID(), Summary: "Enable " + module.config.ProductName + " modules", DependsOn: []string{lastStepID}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess}, Retry: retrySafe})
 	}
 	return steps
 }
@@ -484,7 +500,7 @@ func (module *installationModule) Apply(ctx context.Context, plan InstallationPl
 		sink = discardEventSink{}
 	}
 	result := InstallationResult{SchemaVersion: installationSchemaVersion, PlanID: plan.PlanID, Status: "failed", ProjectPath: plan.ProjectPath}
-	if failure := validatePlan(plan); failure != nil {
+	if failure := module.validatePlan(plan); failure != nil {
 		result.Failure = failure
 		return result, *failure
 	}
@@ -574,6 +590,14 @@ func (module *installationModule) applyStep(ctx context.Context, plan Installati
 		}
 		return result, result.Err
 	}
+	if step.ID == module.config.dependencyStepID() && len(module.config.ComposerPackages) > 0 {
+		args := append([]string{"composer", "require"}, module.config.ComposerPackages...)
+		return run("ddev", args, plan.ProjectPath)
+	}
+	if step.ID == module.config.modulesStepID() && len(module.config.EnabledModules) > 0 {
+		args := append([]string{"drush", "en", "-y"}, module.config.EnabledModules...)
+		return run("ddev", args, plan.ProjectPath)
+	}
 	switch step.ID {
 	case "runtime.install":
 		formula := "docker"
@@ -631,11 +655,6 @@ func (module *installationModule) applyStep(ctx context.Context, plan Installati
 			return result, err
 		}
 		return run("ddev", []string{"drush", "genc", "25", "-y", "--kill", "--roles=content_editor", "--skip-fields=field_tags"}, plan.ProjectPath)
-	case "commerce.dependencies":
-		return run("ddev", []string{"composer", "require", "drupal/commerce:^3.3"}, plan.ProjectPath)
-	case "commerce.modules":
-		args := append([]string{"drush", "en", "-y"}, commerceModules()...)
-		return run("ddev", args, plan.ProjectPath)
 	default:
 		return CommandResult{}, fmt.Errorf("unknown installation step %s", step.ID)
 	}
@@ -663,7 +682,7 @@ func (module *installationModule) writeDrupalSettings(projectPath string) error 
 
 func (module *installationModule) Verify(ctx context.Context, plan InstallationPlan, sink EventSink) (InstallationResult, error) {
 	result := InstallationResult{SchemaVersion: installationSchemaVersion, PlanID: plan.PlanID, Status: "failed", ProjectPath: plan.ProjectPath}
-	if failure := validatePlan(plan); failure != nil {
+	if failure := module.validatePlan(plan); failure != nil {
 		result.Failure = failure
 		return result, *failure
 	}
@@ -697,27 +716,29 @@ func (module *installationModule) Verify(ctx context.Context, plan InstallationP
 	if ddevPassed {
 		result.SiteURL = siteURLFromDescribe(describe.Output)
 	}
-	if plan.Request.InstallationType == commerceInstallation {
-		commerce := module.runner.Run(ctx, CommandRequest{Name: "ddev", Args: []string{"composer", "show", "drupal/commerce"}, Dir: plan.ProjectPath})
-		commercePassed := commerce.Err == nil
-		if !commercePassed {
+	for _, packageName := range module.config.ComposerPackages {
+		packageResult := module.runner.Run(ctx, CommandRequest{Name: "ddev", Args: []string{"composer", "show", packageNameWithoutConstraint(packageName)}, Dir: plan.ProjectPath})
+		packagePassed := packageResult.Err == nil
+		if !packagePassed {
 			passed = false
 		}
 		message := "installed"
-		if !commercePassed {
-			message = strings.TrimSpace(commerce.Output)
+		if !packagePassed {
+			message = strings.TrimSpace(packageResult.Output)
 			if message == "" {
 				message = "missing"
 			}
 		}
-		result.Verification = append(result.Verification, VerificationCheck{ID: "commerce.package", Passed: commercePassed, Message: message})
+		result.Verification = append(result.Verification, VerificationCheck{ID: string(module.config.Type) + ".package", Passed: packagePassed, Message: message})
+	}
+	if len(module.config.EnabledModules) > 0 {
 		modules := module.runner.Run(ctx, CommandRequest{Name: "ddev", Args: []string{"drush", "pm:list", "--type=module", "--status=enabled", "--field=name"}, Dir: plan.ProjectPath})
 		enabled := map[string]bool{}
 		for _, name := range strings.Fields(modules.Output) {
 			enabled[name] = true
 		}
 		missing := []string{}
-		for _, name := range commerceModules() {
+		for _, name := range module.config.EnabledModules {
 			if !enabled[name] {
 				missing = append(missing, name)
 			}
@@ -726,7 +747,7 @@ func (module *installationModule) Verify(ctx context.Context, plan InstallationP
 		if !modulesPassed {
 			passed = false
 		}
-		message = "enabled"
+		message := "enabled"
 		if modules.Err != nil {
 			message = strings.TrimSpace(modules.Output)
 			if message == "" {
@@ -735,7 +756,7 @@ func (module *installationModule) Verify(ctx context.Context, plan InstallationP
 		} else if len(missing) > 0 {
 			message = "missing enabled modules: " + strings.Join(missing, ", ")
 		}
-		result.Verification = append(result.Verification, VerificationCheck{ID: "commerce.modules", Passed: modulesPassed, Message: message})
+		result.Verification = append(result.Verification, VerificationCheck{ID: string(module.config.Type) + ".modules", Passed: modulesPassed, Message: message})
 	}
 	if !passed {
 		failure := installationFailure("verification_failed", "", "installation verification failed", true, "inspect failed checks and create a new plan")
@@ -746,7 +767,7 @@ func (module *installationModule) Verify(ctx context.Context, plan InstallationP
 	return result, nil
 }
 
-func validatePlan(plan InstallationPlan) *InstallationFailure {
+func (module *installationModule) validatePlan(plan InstallationPlan) *InstallationFailure {
 	if plan.SchemaVersion != installationSchemaVersion {
 		failure := installationFailure("invalid_plan", "", "unsupported installation plan schema", false, "create a new plan with this Dropkit version")
 		return &failure
@@ -755,12 +776,12 @@ func validatePlan(plan InstallationPlan) *InstallationFailure {
 		failure := installationFailure("invalid_plan", "", "installation plan contains an unsupported Drupal version", false, "create a new plan with a Drupal version from 8 through 12")
 		return &failure
 	}
-	if plan.Request.InstallationType != drupalInstallation && plan.Request.InstallationType != commerceInstallation {
-		failure := installationFailure("invalid_plan", "", "installation plan contains an unsupported installation type", false, "create a new plan with dropkit install or dropkit commerce")
+	if plan.Request.InstallationType != module.config.Type {
+		failure := installationFailure("invalid_plan", "", "installation plan contains the wrong installation type", false, "create a new plan with the command that will apply it")
 		return &failure
 	}
-	if plan.Request.InstallationType == commerceInstallation && (plan.Request.DrupalVersion < minimumCommerceVersion || plan.Request.DrupalVersion > maximumCommerceVersion) {
-		failure := installationFailure("invalid_plan", "", "Drupal Commerce plan requires Drupal 10 or 11", false, "create a new Commerce plan with Drupal 10 or 11")
+	if plan.Request.DrupalVersion < module.config.MinimumDrupalVersion || plan.Request.DrupalVersion > module.config.MaximumDrupalVersion {
+		failure := installationFailure("invalid_plan", "", fmt.Sprintf("%s plan requires Drupal %s", module.config.ProductName, versionRange(module.config.MinimumDrupalVersion, module.config.MaximumDrupalVersion)), false, "create a new plan with a supported Drupal version")
 		return &failure
 	}
 	digest, err := planDigest(plan)
@@ -768,7 +789,13 @@ func validatePlan(plan InstallationPlan) *InstallationFailure {
 		failure := installationFailure("invalid_plan", "", "installation plan digest is invalid", false, "create a new plan")
 		return &failure
 	}
-	known := map[string]bool{"host.platform": true, "host.homebrew": true, "runtime.install": true, "runtime.start": true, "host.composer": true, "host.ddev": true, "project.create": true, "ddev.configure": true, "ddev.start": true, "drupal.dependencies": true, "drupal.settings": true, "drupal.site": true, "drupal.modules": true, "drupal.config": true, "drupal.sample_content": true, "commerce.dependencies": true, "commerce.modules": true}
+	known := map[string]bool{"host.platform": true, "host.homebrew": true, "runtime.install": true, "runtime.start": true, "host.composer": true, "host.ddev": true, "project.create": true, "ddev.configure": true, "ddev.start": true, "drupal.dependencies": true, "drupal.settings": true, "drupal.site": true, "drupal.modules": true, "drupal.config": true, "drupal.sample_content": true}
+	if len(module.config.ComposerPackages) > 0 {
+		known[module.config.dependencyStepID()] = true
+	}
+	if len(module.config.EnabledModules) > 0 {
+		known[module.config.modulesStepID()] = true
+	}
 	for _, step := range plan.Steps {
 		if !known[step.ID] {
 			failure := installationFailure("invalid_plan", step.ID, "installation plan contains an unknown step", false, "create a new plan")
@@ -799,8 +826,29 @@ func drupalEnabledModules(version int) []string {
 	return []string{"admin_toolbar", "admin_toolbar_tools", "config_split", "devel", "environment_indicator", "environment_indicator_ui", "environment_indicator_toolbar", "token", "pathauto", "config_ignore", "better_exposed_filters", "key", "webprofiler", "diff", "ultimate_cron", "devel_generate"}
 }
 
-func commerceModules() []string {
-	return []string{"commerce", "commerce_cart", "commerce_checkout", "commerce_order", "commerce_store", "commerce_price", "commerce_tax", "commerce_product", "commerce_payment"}
+func versionChoices(minimum, maximum int) string {
+	values := make([]string, 0, maximum-minimum+1)
+	for version := minimum; version <= maximum; version++ {
+		values = append(values, fmt.Sprintf("%d", version))
+	}
+	return strings.Join(values, " or ")
+}
+
+func versionRange(minimum, maximum int) string {
+	if minimum == maximum {
+		return fmt.Sprintf("%d", minimum)
+	}
+	if maximum == minimum+1 {
+		return fmt.Sprintf("%d or %d", minimum, maximum)
+	}
+	return fmt.Sprintf("%d through %d", minimum, maximum)
+}
+
+func packageNameWithoutConstraint(packageName string) string {
+	if index := strings.Index(packageName, ":"); index >= 0 {
+		return packageName[:index]
+	}
+	return packageName
 }
 
 func planDigest(plan InstallationPlan) (string, error) {

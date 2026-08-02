@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"dropkit/internal/command/commerce"
+	"dropkit/internal/command/install"
 )
 
 func main() {
@@ -25,11 +28,11 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 			return 0
 		}
 		if len(args) == 2 && args[1] == "install" {
-			printInstallUsage(stdout)
+			install.PrintUsage(stdout)
 			return 0
 		}
 		if len(args) == 2 && args[1] == "commerce" {
-			printCommerceUsage(stdout)
+			commerce.PrintUsage(stdout)
 			return 0
 		}
 		fmt.Fprintf(stderr, "unknown help topic %q\n\n", args[1])
@@ -37,16 +40,16 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 		return 1
 	case "install":
 		if len(args) == 2 && (args[1] == "-h" || args[1] == "--help") {
-			printInstallUsage(stdout)
+			install.PrintUsage(stdout)
 			return 0
 		}
-		return runInstallCommand(args[1:], os.Stdin, stdout, stderr)
+		return install.Run(args[1:], os.Stdin, stdout, stderr)
 	case "commerce":
 		if len(args) == 2 && (args[1] == "-h" || args[1] == "--help") {
-			printCommerceUsage(stdout)
+			commerce.PrintUsage(stdout)
 			return 0
 		}
-		return runCommerceCommand(args[1:], os.Stdin, stdout, stderr)
+		return commerce.Run(args[1:], os.Stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n", args[0])
 		printUsage(stderr)
@@ -61,55 +64,4 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "  install    Install a Drupal 8-12 development environment")
 	fmt.Fprintln(writer, "  commerce   Install Drupal Commerce on Drupal 10 or 11")
 	fmt.Fprintln(writer, "  help       Show help for a command")
-}
-
-func printInstallUsage(writer io.Writer) {
-	fmt.Fprintln(writer, "Usage:")
-	fmt.Fprintln(writer, "  dropkit install                                                Interactive TUI (terminal only)")
-	fmt.Fprintln(writer, "  dropkit install plan --name NAME --parent DIR --provider docker|colima --drupal-version VERSION [options]")
-	fmt.Fprintln(writer, "  dropkit install apply --plan FILE [approvals] [options]")
-	fmt.Fprintln(writer, "  dropkit install verify --plan FILE [options]")
-	fmt.Fprintln(writer)
-	fmt.Fprintln(writer, "Commands:")
-	fmt.Fprintln(writer, "  plan      Inspect the host and create a read-only installation plan")
-	fmt.Fprintln(writer, "  apply     Apply a saved plan with explicit effect approvals")
-	fmt.Fprintln(writer, "  verify    Verify a saved plan without modifying the host")
-	fmt.Fprintln(writer)
-	fmt.Fprintln(writer, "Approvals:")
-	fmt.Fprintln(writer, "  --allow-network       Allow downloads")
-	fmt.Fprintln(writer, "  --allow-host-changes  Allow host package and runtime changes")
-	fmt.Fprintln(writer, "  --allow-destructive   Allow destructive project operations")
-	fmt.Fprintln(writer)
-	fmt.Fprintln(writer, "Machine output:")
-	fmt.Fprintln(writer, "  --output json         Write one JSON document to stdout")
-	fmt.Fprintln(writer, "  --events jsonl        Stream JSON events to stderr")
-}
-
-func printCommerceUsage(writer io.Writer) {
-	fmt.Fprintln(writer, "Usage:")
-	fmt.Fprintln(writer, "  dropkit commerce                                                Interactive TUI (terminal only)")
-	fmt.Fprintln(writer, "  dropkit commerce plan --name NAME --parent DIR --provider docker|colima --drupal-version 10|11 [options]")
-	fmt.Fprintln(writer, "  dropkit commerce apply --plan FILE [approvals] [options]")
-	fmt.Fprintln(writer, "  dropkit commerce verify --plan FILE [options]")
-	fmt.Fprintln(writer)
-	fmt.Fprintln(writer, "Commands:")
-	fmt.Fprintln(writer, "  plan      Inspect the host and create a read-only Drupal Commerce installation plan")
-	fmt.Fprintln(writer, "  apply     Apply a saved Commerce plan with explicit effect approvals")
-	fmt.Fprintln(writer, "  verify    Verify a saved Commerce plan without modifying the host")
-	fmt.Fprintln(writer)
-	fmt.Fprintln(writer, "Commerce package:")
-	fmt.Fprintln(writer, "  drupal/commerce:^3.3")
-	fmt.Fprintln(writer)
-	fmt.Fprintln(writer, "Enabled modules:")
-	fmt.Fprintln(writer, "  commerce, commerce_cart, commerce_checkout, commerce_order")
-	fmt.Fprintln(writer, "  commerce_store, commerce_price, commerce_tax")
-	fmt.Fprintln(writer)
-	fmt.Fprintln(writer, "Approvals:")
-	fmt.Fprintln(writer, "  --allow-network       Allow downloads")
-	fmt.Fprintln(writer, "  --allow-host-changes  Allow host package and runtime changes")
-	fmt.Fprintln(writer, "  --allow-destructive   Allow destructive project operations")
-	fmt.Fprintln(writer)
-	fmt.Fprintln(writer, "Machine output:")
-	fmt.Fprintln(writer, "  --output json         Write one JSON document to stdout")
-	fmt.Fprintln(writer, "  --events jsonl        Stream JSON events to stderr")
 }

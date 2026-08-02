@@ -1,4 +1,4 @@
-package main
+package installation
 
 import (
 	"bytes"
@@ -84,7 +84,7 @@ func TestRunApplyCommandHonorsApprovalsAndMachineStreams(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	exitCode := runApplyCommand(context.Background(), module, []string{
+	exitCode := runApplyCommandForConfig(context.Background(), module, testDrupalConfig, []string{
 		"--plan", writeTestPlan(t, plan),
 		"--allow-network",
 		"--allow-host-changes",
@@ -123,7 +123,7 @@ func TestRunApplyCommandFailureStillWritesOneJSONResult(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	exitCode := runApplyCommand(context.Background(), module, []string{
+	exitCode := runApplyCommandForConfig(context.Background(), module, testDrupalConfig, []string{
 		"--plan", writeTestPlan(t, InstallationPlan{Digest: "digest"}),
 		"--output", "json",
 		"--events", "none",
@@ -148,7 +148,7 @@ func TestRunVerifyCommandUsesSavedPlanAndEventFormat(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	exitCode := runVerifyCommand(context.Background(), module, []string{
+	exitCode := runVerifyCommandForConfig(context.Background(), module, testDrupalConfig, []string{
 		"--plan", writeTestPlan(t, plan),
 		"--output", "json",
 		"--events", "human",
@@ -166,12 +166,12 @@ func TestRunVerifyCommandUsesSavedPlanAndEventFormat(t *testing.T) {
 	}
 }
 
-func TestCommercePlanCommandSetsInstallationType(t *testing.T) {
-	module := &cliTestModule{planResult: InstallationPlan{PlanID: "commerce-plan"}}
+func TestConfiguredPlanCommandSetsInstallationType(t *testing.T) {
+	module := &cliTestModule{planResult: InstallationPlan{PlanID: "store-plan"}}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	exitCode := runPlanCommandForType(context.Background(), module, commerceInstallation, []string{
+	exitCode := runPlanCommandForConfig(context.Background(), module, testExtensionConfig, []string{
 		"--name", "store",
 		"--parent", "/projects",
 		"--provider", "colima",
@@ -181,21 +181,21 @@ func TestCommercePlanCommandSetsInstallationType(t *testing.T) {
 	if exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("exit = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
-	if module.request.InstallationType != commerceInstallation || module.request.DrupalVersion != 10 {
+	if module.request.InstallationType != testExtensionConfig.Type || module.request.DrupalVersion != 10 {
 		t.Fatalf("request = %#v", module.request)
 	}
 }
 
-func TestCommerceCommandRejectsPlanForDrupalInstall(t *testing.T) {
-	plan := InstallationPlan{Request: InstallationRequest{InstallationType: drupalInstallation}}
+func TestConfiguredCommandRejectsPlanForDifferentInstallation(t *testing.T) {
+	plan := InstallationPlan{Request: InstallationRequest{InstallationType: testDrupalConfig.Type}}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	exitCode := runApplyCommandForType(context.Background(), &cliTestModule{}, commerceInstallation, []string{
+	exitCode := runApplyCommandForConfig(context.Background(), &cliTestModule{}, testExtensionConfig, []string{
 		"--plan", writeTestPlan(t, plan),
 	}, &stdout, &stderr)
 
-	if exitCode != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "plan is for drupal, not commerce") {
+	if exitCode != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "plan is for drupal, not store") {
 		t.Fatalf("exit = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
 }
@@ -214,35 +214,35 @@ func TestInstallCommandRejectsInvalidApplyAndVerifyInputs(t *testing.T) {
 		{
 			name: "apply requires plan",
 			run: func(stdout, stderr io.Writer) int {
-				return runApplyCommand(context.Background(), &cliTestModule{}, nil, stdout, stderr)
+				return runApplyCommandForConfig(context.Background(), &cliTestModule{}, testDrupalConfig, nil, stdout, stderr)
 			},
 			text: "--plan is required",
 		},
 		{
 			name: "apply rejects invalid plan JSON",
 			run: func(stdout, stderr io.Writer) int {
-				return runApplyCommand(context.Background(), &cliTestModule{}, []string{"--plan", invalidPlanPath}, stdout, stderr)
+				return runApplyCommandForConfig(context.Background(), &cliTestModule{}, testDrupalConfig, []string{"--plan", invalidPlanPath}, stdout, stderr)
 			},
 			text: "invalid_plan",
 		},
 		{
 			name: "apply rejects event format",
 			run: func(stdout, stderr io.Writer) int {
-				return runApplyCommand(context.Background(), &cliTestModule{}, []string{"--plan", validPlanPath, "--events", "xml"}, stdout, stderr)
+				return runApplyCommandForConfig(context.Background(), &cliTestModule{}, testDrupalConfig, []string{"--plan", validPlanPath, "--events", "xml"}, stdout, stderr)
 			},
 			text: "unknown event format",
 		},
 		{
 			name: "verify requires plan",
 			run: func(stdout, stderr io.Writer) int {
-				return runVerifyCommand(context.Background(), &cliTestModule{}, nil, stdout, stderr)
+				return runVerifyCommandForConfig(context.Background(), &cliTestModule{}, testDrupalConfig, nil, stdout, stderr)
 			},
 			text: "--plan is required",
 		},
 		{
 			name: "verify rejects output format",
 			run: func(stdout, stderr io.Writer) int {
-				return runVerifyCommand(context.Background(), &cliTestModule{}, []string{"--plan", validPlanPath, "--output", "xml"}, stdout, stderr)
+				return runVerifyCommandForConfig(context.Background(), &cliTestModule{}, testDrupalConfig, []string{"--plan", validPlanPath, "--output", "xml"}, stdout, stderr)
 			},
 			text: "output must be human or json",
 		},
@@ -387,7 +387,7 @@ func TestVerifyCommandMapsFailureExitCode(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	exitCode := runVerifyCommand(context.Background(), module, []string{
+	exitCode := runVerifyCommandForConfig(context.Background(), module, testDrupalConfig, []string{
 		"--plan", writeTestPlan(t, InstallationPlan{}),
 		"--events", "none",
 	}, &stdout, &stderr)

@@ -1,4 +1,4 @@
-package main
+package installation
 
 import (
 	"context"
@@ -30,56 +30,47 @@ func (sink jsonEventSink) Emit(event Event) {
 	_ = json.NewEncoder(sink.writer).Encode(event)
 }
 
-func runInstallCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	return runInstallationCommand(drupalInstallation, args, stdin, stdout, stderr)
+type Command struct {
+	config     InstallationConfig
+	printUsage func(io.Writer)
 }
 
-func runCommerceCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	return runInstallationCommand(commerceInstallation, args, stdin, stdout, stderr)
+func NewCommand(config InstallationConfig, printUsage func(io.Writer)) Command {
+	return Command{config: config, printUsage: printUsage}
 }
 
-func runInstallationCommand(installationType InstallationType, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	usage := printInstallUsage
-	command := "install"
-	if installationType == commerceInstallation {
-		usage = printCommerceUsage
-		command = "commerce"
-	}
+func (command Command) Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		if !readerIsTerminal(stdin) {
-			failure := installationFailure("invalid_request", "", "interactive "+command+" requires a terminal", false, "use dropkit "+command+" plan with explicit arguments")
+			failure := installationFailure("invalid_request", "", "interactive "+command.config.CommandName+" requires a terminal", false, "use dropkit "+command.config.CommandName+" plan with explicit arguments")
 			fmt.Fprintln(stderr, failure.Message)
 			return exitCodeForFailure(failure)
 		}
-		return runInstallWizardForType(context.Background(), newProductionInstallationModule(), installationType, stdin, stdout, stderr)
+		return runInstallWizardForConfig(context.Background(), newProductionInstallationModule(command.config), command.config, stdin, stdout, stderr)
 	}
 	switch args[0] {
 	case "plan":
-		return runPlanCommandForType(context.Background(), newProductionInstallationModule(), installationType, args[1:], stdout, stderr)
+		return runPlanCommandForConfig(context.Background(), newProductionInstallationModule(command.config), command.config, args[1:], stdout, stderr)
 	case "apply":
-		return runApplyCommandForType(context.Background(), newProductionInstallationModule(), installationType, args[1:], stdout, stderr)
+		return runApplyCommandForConfig(context.Background(), newProductionInstallationModule(command.config), command.config, args[1:], stdout, stderr)
 	case "verify":
-		return runVerifyCommandForType(context.Background(), newProductionInstallationModule(), installationType, args[1:], stdout, stderr)
+		return runVerifyCommandForConfig(context.Background(), newProductionInstallationModule(command.config), command.config, args[1:], stdout, stderr)
 	case "-h", "--help", "help":
-		usage(stdout)
+		command.printUsage(stdout)
 		return 0
 	default:
-		fmt.Fprintf(stderr, "unknown %s command %q\n\n", command, args[0])
-		usage(stderr)
+		fmt.Fprintf(stderr, "unknown %s command %q\n\n", command.config.CommandName, args[0])
+		command.printUsage(stderr)
 		return 2
 	}
 }
 
-func runPlanCommand(ctx context.Context, module InstallationModule, args []string, stdout, stderr io.Writer) int {
-	return runPlanCommandForType(ctx, module, drupalInstallation, args, stdout, stderr)
-}
-
-func runPlanCommandForType(ctx context.Context, module InstallationModule, installationType InstallationType, args []string, stdout, stderr io.Writer) int {
+func runPlanCommandForConfig(ctx context.Context, module InstallationModule, config InstallationConfig, args []string, stdout, stderr io.Writer) int {
 	if helpRequested(args) {
-		printPlanUsageForType(stdout, installationType)
+		printPlanUsage(stdout, config)
 		return 0
 	}
-	flags := flag.NewFlagSet("dropkit install plan", flag.ContinueOnError)
+	flags := flag.NewFlagSet("dropkit "+config.CommandName+" plan", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	name := flags.String("name", "", "Drupal project name")
 	parent := flags.String("parent", "", "parent directory")
@@ -90,13 +81,13 @@ func runPlanCommandForType(ctx context.Context, module InstallationModule, insta
 	adminPasswordEnv := flags.String("admin-password-env", "", "environment variable containing the Drupal administrator password")
 	output := flags.String("output", "human", "human or json")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
-		return writeCommandFailure(stdout, stderr, *output, installationFailure("invalid_request", "", "invalid plan arguments", false, "run dropkit help install"))
+		return writeCommandFailure(stdout, stderr, *output, installationFailure("invalid_request", "", "invalid plan arguments", false, "run dropkit help "+config.CommandName))
 	}
 	if !validOutputFormat(*output) {
 		return writeCommandFailure(stdout, stderr, "human", installationFailure("invalid_request", "", "output must be human or json", false, "use --output human or --output json"))
 	}
 	plan, err := module.Plan(ctx, InstallationRequest{
-		InstallationType: installationType,
+		InstallationType: config.Type,
 		ProjectName:      *name,
 		ParentDirectory:  *parent,
 		DockerProvider:   DockerProvider(*provider),
@@ -117,16 +108,12 @@ func runPlanCommandForType(ctx context.Context, module InstallationModule, insta
 	return 0
 }
 
-func runApplyCommand(ctx context.Context, module InstallationModule, args []string, stdout, stderr io.Writer) int {
-	return runApplyCommandForType(ctx, module, drupalInstallation, args, stdout, stderr)
-}
-
-func runApplyCommandForType(ctx context.Context, module InstallationModule, installationType InstallationType, args []string, stdout, stderr io.Writer) int {
+func runApplyCommandForConfig(ctx context.Context, module InstallationModule, config InstallationConfig, args []string, stdout, stderr io.Writer) int {
 	if helpRequested(args) {
-		printApplyUsageForType(stdout, installationType)
+		printApplyUsage(stdout, config)
 		return 0
 	}
-	flags := flag.NewFlagSet("dropkit install apply", flag.ContinueOnError)
+	flags := flag.NewFlagSet("dropkit "+config.CommandName+" apply", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	planPath := flags.String("plan", "", "path to an installation plan")
 	allowNetwork := flags.Bool("allow-network", false, "allow network access")
@@ -135,7 +122,7 @@ func runApplyCommandForType(ctx context.Context, module InstallationModule, inst
 	output := flags.String("output", "human", "human or json")
 	events := flags.String("events", "human", "human, jsonl, or none")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || *planPath == "" {
-		return writeCommandFailure(stdout, stderr, *output, installationFailure("invalid_request", "", "--plan is required and arguments must be valid", false, "run dropkit help install"))
+		return writeCommandFailure(stdout, stderr, *output, installationFailure("invalid_request", "", "--plan is required and arguments must be valid", false, "run dropkit help "+config.CommandName))
 	}
 	if !validOutputFormat(*output) {
 		return writeCommandFailure(stdout, stderr, "human", installationFailure("invalid_request", "", "output must be human or json", false, "use --output human or --output json"))
@@ -144,8 +131,8 @@ func runApplyCommandForType(ctx context.Context, module InstallationModule, inst
 	if err != nil {
 		return writeCommandFailure(stdout, stderr, *output, installationFailure("invalid_plan", "", err.Error(), false, "create a new plan"))
 	}
-	if plan.Request.InstallationType != "" && plan.Request.InstallationType != installationType {
-		return writeCommandFailure(stdout, stderr, *output, installationFailure("invalid_plan", "", fmt.Sprintf("plan is for %s, not %s", plan.Request.InstallationType, installationType), false, "use the command that created this plan"))
+	if plan.Request.InstallationType != "" && plan.Request.InstallationType != config.Type {
+		return writeCommandFailure(stdout, stderr, *output, installationFailure("invalid_plan", "", fmt.Sprintf("plan is for %s, not %s", plan.Request.InstallationType, config.Type), false, "use the command that created this plan"))
 	}
 	allowed := map[Effect]bool{}
 	if *allowNetwork {
@@ -171,22 +158,18 @@ func runApplyCommandForType(ctx context.Context, module InstallationModule, inst
 	return 0
 }
 
-func runVerifyCommand(ctx context.Context, module InstallationModule, args []string, stdout, stderr io.Writer) int {
-	return runVerifyCommandForType(ctx, module, drupalInstallation, args, stdout, stderr)
-}
-
-func runVerifyCommandForType(ctx context.Context, module InstallationModule, installationType InstallationType, args []string, stdout, stderr io.Writer) int {
+func runVerifyCommandForConfig(ctx context.Context, module InstallationModule, config InstallationConfig, args []string, stdout, stderr io.Writer) int {
 	if helpRequested(args) {
-		printVerifyUsageForType(stdout, installationType)
+		printVerifyUsage(stdout, config)
 		return 0
 	}
-	flags := flag.NewFlagSet("dropkit install verify", flag.ContinueOnError)
+	flags := flag.NewFlagSet("dropkit "+config.CommandName+" verify", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	planPath := flags.String("plan", "", "path to an installation plan")
 	output := flags.String("output", "human", "human or json")
 	events := flags.String("events", "none", "human, jsonl, or none")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || *planPath == "" {
-		return writeCommandFailure(stdout, stderr, *output, installationFailure("invalid_request", "", "--plan is required and arguments must be valid", false, "run dropkit help install"))
+		return writeCommandFailure(stdout, stderr, *output, installationFailure("invalid_request", "", "--plan is required and arguments must be valid", false, "run dropkit help "+config.CommandName))
 	}
 	if !validOutputFormat(*output) {
 		return writeCommandFailure(stdout, stderr, "human", installationFailure("invalid_request", "", "output must be human or json", false, "use --output human or --output json"))
@@ -195,8 +178,8 @@ func runVerifyCommandForType(ctx context.Context, module InstallationModule, ins
 	if err != nil {
 		return writeCommandFailure(stdout, stderr, *output, installationFailure("invalid_plan", "", err.Error(), false, "create a new plan"))
 	}
-	if plan.Request.InstallationType != "" && plan.Request.InstallationType != installationType {
-		return writeCommandFailure(stdout, stderr, *output, installationFailure("invalid_plan", "", fmt.Sprintf("plan is for %s, not %s", plan.Request.InstallationType, installationType), false, "use the command that created this plan"))
+	if plan.Request.InstallationType != "" && plan.Request.InstallationType != config.Type {
+		return writeCommandFailure(stdout, stderr, *output, installationFailure("invalid_plan", "", fmt.Sprintf("plan is for %s, not %s", plan.Request.InstallationType, config.Type), false, "use the command that created this plan"))
 	}
 	sink, sinkErr := selectEventSink(*events, stderr)
 	if sinkErr != nil {
@@ -352,23 +335,12 @@ func validOutputFormat(format string) bool {
 	return format == "human" || format == "json"
 }
 
-func printPlanUsage(writer io.Writer) {
-	printPlanUsageForType(writer, drupalInstallation)
-}
-
-func printPlanUsageForType(writer io.Writer, installationType InstallationType) {
-	command := "install"
-	versions := "8|9|10|11|12"
-	versionDescription := "Drupal major version from 8 through 12"
-	if installationType == commerceInstallation {
-		command = "commerce"
-		versions = "10|11"
-		versionDescription = "Drupal major version 10 or 11"
-	}
-	fmt.Fprintf(writer, "Usage: dropkit %s plan --name NAME --parent DIR --provider docker|colima --drupal-version %s [options]\n", command, versions)
+func printPlanUsage(writer io.Writer, config InstallationConfig) {
+	versions := strings.ReplaceAll(versionChoices(config.MinimumDrupalVersion, config.MaximumDrupalVersion), " or ", "|")
+	fmt.Fprintf(writer, "Usage: dropkit %s plan --name NAME --parent DIR --provider docker|colima --drupal-version %s [options]\n", config.CommandName, versions)
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Required inputs:")
-	fmt.Fprintf(writer, "  --drupal-version VERSION   %s\n", versionDescription)
+	fmt.Fprintf(writer, "  --drupal-version VERSION   Drupal major version %s\n", versionRange(config.MinimumDrupalVersion, config.MaximumDrupalVersion))
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Read-only options:")
 	fmt.Fprintln(writer, "  --generate-content          Include destructive sample-content generation")
@@ -377,12 +349,8 @@ func printPlanUsageForType(writer io.Writer, installationType InstallationType) 
 	fmt.Fprintln(writer, "  --output human|json         Output format (default: human)")
 }
 
-func printApplyUsage(writer io.Writer) {
-	printApplyUsageForType(writer, drupalInstallation)
-}
-
-func printApplyUsageForType(writer io.Writer, installationType InstallationType) {
-	fmt.Fprintf(writer, "Usage: dropkit %s apply --plan FILE [options]\n", installationType)
+func printApplyUsage(writer io.Writer, config InstallationConfig) {
+	fmt.Fprintf(writer, "Usage: dropkit %s apply --plan FILE [options]\n", config.CommandName)
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Approvals:")
 	fmt.Fprintln(writer, "  --allow-network")
@@ -394,12 +362,8 @@ func printApplyUsageForType(writer io.Writer, installationType InstallationType)
 	fmt.Fprintln(writer, "  --events human|jsonl|none")
 }
 
-func printVerifyUsage(writer io.Writer) {
-	printVerifyUsageForType(writer, drupalInstallation)
-}
-
-func printVerifyUsageForType(writer io.Writer, installationType InstallationType) {
-	fmt.Fprintf(writer, "Usage: dropkit %s verify --plan FILE [options]\n", installationType)
+func printVerifyUsage(writer io.Writer, config InstallationConfig) {
+	fmt.Fprintf(writer, "Usage: dropkit %s verify --plan FILE [options]\n", config.CommandName)
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Verify is read-only.")
 	fmt.Fprintln(writer, "  --output human|json")

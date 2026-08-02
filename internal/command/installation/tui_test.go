@@ -1,4 +1,4 @@
-package main
+package installation
 
 import (
 	"context"
@@ -46,7 +46,7 @@ func TestInstallTUIBuildsPlanThroughGuidedFlow(t *testing.T) {
 	module := &tuiTestModule{plan: InstallationPlan{PlanID: "abc123", ProjectPath: "/projects/quick-site"}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	model := newInstallTUIModel(ctx, cancel, module, "/projects")
+	model := newInstallTUIModel(ctx, cancel, module, testDrupalConfig, "/projects")
 
 	model.Update(tuiKey(tea.KeyEnter, ""))
 	if !strings.Contains(model.View().Content, "Choose a Drupal version") {
@@ -95,26 +95,26 @@ func TestInstallTUIBuildsPlanThroughGuidedFlow(t *testing.T) {
 	}
 }
 
-func TestCommerceTUIOffersDrupalTenAndEleven(t *testing.T) {
-	module := &tuiTestModule{plan: InstallationPlan{PlanID: "commerce-plan"}}
+func TestConfiguredTUIOffersConfiguredDrupalVersions(t *testing.T) {
+	module := &tuiTestModule{plan: InstallationPlan{PlanID: "store-plan"}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	model := newInstallTUIModelForType(ctx, cancel, module, commerceInstallation, "/projects")
+	model := newInstallTUIModel(ctx, cancel, module, testExtensionConfig, "/projects")
 	model.stage = installTUIVersion
 
 	view := model.View().Content
 	if !strings.Contains(view, "Drupal 10") || !strings.Contains(view, "Drupal 11") || strings.Contains(view, "Drupal 12") {
-		t.Fatalf("commerce version view = %q", view)
+		t.Fatalf("configured version view = %q", view)
 	}
-	model.drupalVersion = minimumCommerceVersion
+	model.drupalVersion = testExtensionConfig.MinimumDrupalVersion
 	model.Update(tuiKey(tea.KeyUp, ""))
-	if model.drupalVersion != maximumCommerceVersion {
+	if model.drupalVersion != testExtensionConfig.MaximumDrupalVersion {
 		t.Fatalf("wrapped version = %d", model.drupalVersion)
 	}
 	model.projectName = "store"
 	message := model.planCommand()().(installPlanMsg)
 	model.Update(message)
-	if module.request.InstallationType != commerceInstallation || module.request.DrupalVersion != 11 {
+	if module.request.InstallationType != testExtensionConfig.Type || module.request.DrupalVersion != 11 {
 		t.Fatalf("request = %#v", module.request)
 	}
 }
@@ -134,7 +134,7 @@ func TestInstallTUIRequiresExplicitApplyConfirmation(t *testing.T) {
 	module := &tuiTestModule{plan: plan, result: InstallationResult{Status: "succeeded", ProjectPath: plan.ProjectPath}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	model := newInstallTUIModel(ctx, cancel, module, "/projects")
+	model := newInstallTUIModel(ctx, cancel, module, testDrupalConfig, "/projects")
 	model.stage = installTUIReview
 	model.plan = plan
 	model.send = func(message tea.Msg) {
@@ -168,7 +168,7 @@ func TestInstallTUIBlockedPlanCannotApply(t *testing.T) {
 	module := &tuiTestModule{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	model := newInstallTUIModel(ctx, cancel, module, "/projects")
+	model := newInstallTUIModel(ctx, cancel, module, testDrupalConfig, "/projects")
 	model.stage = installTUIReview
 	model.plan = InstallationPlan{Blocked: true}
 
@@ -186,7 +186,7 @@ func TestInstallTUIShowsPlanningFailureRecovery(t *testing.T) {
 	module := &tuiTestModule{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	model := newInstallTUIModel(ctx, cancel, module, "/projects")
+	model := newInstallTUIModel(ctx, cancel, module, testDrupalConfig, "/projects")
 	model.stage = installTUIReview
 	model.err = installationFailure("invalid_request", "", "bad project", false, "choose another name")
 
@@ -201,7 +201,7 @@ func TestInstallTUIFinishedHandlesMissingStructuredFailure(t *testing.T) {
 	module := &tuiTestModule{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	model := newInstallTUIModel(ctx, cancel, module, "/projects")
+	model := newInstallTUIModel(ctx, cancel, module, testDrupalConfig, "/projects")
 	model.stage = installTUIFinished
 	model.result = InstallationResult{Status: "failed"}
 
@@ -216,7 +216,7 @@ func TestInstallTUIPlanErrorMessage(t *testing.T) {
 	module := &tuiTestModule{planErr: errors.New("inspection unavailable")}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	model := newInstallTUIModel(ctx, cancel, module, "/projects")
+	model := newInstallTUIModel(ctx, cancel, module, testDrupalConfig, "/projects")
 	message := model.planCommand()().(installPlanMsg)
 
 	if message.err == nil || message.err.Error() != "inspection unavailable" {
@@ -228,7 +228,7 @@ func TestInstallTUIHandlesEditingCancellationAndBusyUpdates(t *testing.T) {
 	module := &tuiTestModule{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	model := newInstallTUIModel(ctx, cancel, module, "/projects")
+	model := newInstallTUIModel(ctx, cancel, module, testDrupalConfig, "/projects")
 	if model.Init() != nil {
 		t.Fatal("Init() returned a command")
 	}
@@ -272,7 +272,7 @@ func TestInstallTUIProjectValidationAndNavigation(t *testing.T) {
 	module := &tuiTestModule{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	model := newInstallTUIModel(ctx, cancel, module, "/projects")
+	model := newInstallTUIModel(ctx, cancel, module, testDrupalConfig, "/projects")
 
 	model.Update(tuiKey(tea.KeyDown, ""))
 	if model.provider != dockerDesktop {
@@ -303,7 +303,7 @@ func TestInstallTUIRendersEveryStage(t *testing.T) {
 	module := &tuiTestModule{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	model := newInstallTUIModel(ctx, cancel, module, "/projects")
+	model := newInstallTUIModel(ctx, cancel, module, testDrupalConfig, "/projects")
 	model.projectName = "site"
 	model.plan = InstallationPlan{
 		PlanID:      "abc123",
@@ -344,7 +344,7 @@ func TestInstallTUIFinishedPrefersStructuredFailure(t *testing.T) {
 	module := &tuiTestModule{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	model := newInstallTUIModel(ctx, cancel, module, "/projects")
+	model := newInstallTUIModel(ctx, cancel, module, testDrupalConfig, "/projects")
 	model.stage = installTUIFinished
 	model.err = errors.New("generic error")
 	failure := installationFailure("step_failed", "drupal.site", "site install failed", true, "retry the site install")
