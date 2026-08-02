@@ -1,4 +1,4 @@
-package install
+package drupal
 
 import (
 	"bytes"

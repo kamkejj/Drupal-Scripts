@@ -1,4 +1,4 @@
-package installation
+package installer
 
 var testDrupalConfig = InstallationConfig{
 	CommandName:          "install",

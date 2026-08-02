@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"dropkit/internal/command/commerce"
-	"dropkit/internal/command/install"
+	"dropkit/internal/command/drupal"
 )
 
 func main() {
@@ -28,7 +28,7 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 			return 0
 		}
 		if len(args) == 2 && args[1] == "install" {
-			install.PrintUsage(stdout)
+			drupal.PrintUsage(stdout)
 			return 0
 		}
 		if len(args) == 2 && args[1] == "commerce" {
@@ -40,10 +40,10 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 		return 1
 	case "install":
 		if len(args) == 2 && (args[1] == "-h" || args[1] == "--help") {
-			install.PrintUsage(stdout)
+			drupal.PrintUsage(stdout)
 			return 0
 		}
-		return install.Run(args[1:], os.Stdin, stdout, stderr)
+		return drupal.Run(args[1:], os.Stdin, stdout, stderr)
 	case "commerce":
 		if len(args) == 2 && (args[1] == "-h" || args[1] == "--help") {
 			commerce.PrintUsage(stdout)

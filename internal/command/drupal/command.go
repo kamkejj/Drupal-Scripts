@@ -1,13 +1,13 @@
-package install
+package drupal
 
 import (
 	"fmt"
 	"io"
 
-	"dropkit/internal/command/installation"
+	"dropkit/internal/installer"
 )
 
-var config = installation.InstallationConfig{
+var config = installer.InstallationConfig{
 	CommandName:          "install",
 	Type:                 "drupal",
 	ProductName:          "Drupal",
@@ -15,7 +15,7 @@ var config = installation.InstallationConfig{
 	MaximumDrupalVersion: 12,
 }
 
-var command = installation.NewCommand(config, PrintUsage)
+var command = installer.NewCommand(config, PrintUsage)
 
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return command.Run(args, stdin, stdout, stderr)

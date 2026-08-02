@@ -69,7 +69,7 @@ dropkit commerce
 
 It runs the same Drupal installation and configuration workflow, installs `drupal/commerce:^3.3`, and enables the Commerce modules needed for stores, products, orders, carts, checkout, pricing, and tax.
 
-The interactive installer is built with [Bubble Tea](https://github.com/charmbracelet/bubbletea). Use the arrow keys or `Tab` to move, `Enter` to continue, and `Esc` to cancel. During installation, the TUI displays live semantic step events from the same installation module used by automated callers.
+The interactive installer is built with [Bubble Tea](https://github.com/charmbracelet/bubbletea). Use the arrow keys or `Tab` to move, `Enter` to continue, and `Esc` to cancel. During installation, the TUI displays live semantic step events from the same installer module used by automated callers.
 
 **Note:** The tool will create the new Drupal project as a subdirectory of your current working directory.
 
