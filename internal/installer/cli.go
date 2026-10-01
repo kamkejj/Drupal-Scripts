@@ -76,14 +76,12 @@ func runPlanCommandForConfig(ctx context.Context, module InstallationModule, con
 	parent := flags.String("parent", "", "parent directory")
 	provider := flags.String("provider", "", "docker or colima")
 	drupalVersion := config.FixedDrupalVersion
-	generateContent := false
 	adminUsername := ""
 	adminPasswordEnv := ""
 	if config.FixedDrupalVersion == 0 {
 		flags.IntVar(&drupalVersion, "drupal-version", 0, "Drupal major version from 8 through 12")
 	}
 	if !config.BrowserInstaller {
-		flags.BoolVar(&generateContent, "generate-content", false, "generate sample content")
 		flags.StringVar(&adminUsername, "admin-user", "admin", "Drupal administrator username")
 		flags.StringVar(&adminPasswordEnv, "admin-password-env", "", "environment variable containing the Drupal administrator password")
 	}
@@ -100,7 +98,6 @@ func runPlanCommandForConfig(ctx context.Context, module InstallationModule, con
 		ParentDirectory:  *parent,
 		DockerProvider:   DockerProvider(*provider),
 		DrupalVersion:    drupalVersion,
-		GenerateContent:  generateContent,
 		AdminUsername:    adminUsername,
 		AdminPasswordEnv: adminPasswordEnv,
 	})
@@ -126,7 +123,6 @@ func runApplyCommandForConfig(ctx context.Context, module InstallationModule, co
 	planPath := flags.String("plan", "", "path to an installation plan")
 	allowNetwork := flags.Bool("allow-network", false, "allow network access")
 	allowHostChanges := flags.Bool("allow-host-changes", false, "allow host package installation and runtime changes")
-	allowDestructive := flags.Bool("allow-destructive", false, "allow destructive project operations")
 	output := flags.String("output", "human", "human or json")
 	events := flags.String("events", "human", "human, jsonl, or none")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || *planPath == "" {
@@ -148,9 +144,6 @@ func runApplyCommandForConfig(ctx context.Context, module InstallationModule, co
 	}
 	if *allowHostChanges {
 		allowed[effectHostChange] = true
-	}
-	if *allowDestructive {
-		allowed[effectDestructive] = true
 	}
 	sink, sinkErr := selectEventSink(*events, stderr)
 	if sinkErr != nil {
@@ -361,7 +354,6 @@ func printPlanUsage(writer io.Writer, config InstallationConfig) {
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Read-only options:")
 	if !config.BrowserInstaller {
-		fmt.Fprintln(writer, "  --generate-content          Include destructive sample-content generation")
 		fmt.Fprintln(writer, "  --admin-user NAME           Drupal administrator username (default: admin)")
 		fmt.Fprintln(writer, "  --admin-password-env NAME   Environment variable containing the administrator password")
 	}
@@ -374,7 +366,6 @@ func printApplyUsage(writer io.Writer, config InstallationConfig) {
 	fmt.Fprintln(writer, "Approvals:")
 	fmt.Fprintln(writer, "  --allow-network")
 	fmt.Fprintln(writer, "  --allow-host-changes")
-	fmt.Fprintln(writer, "  --allow-destructive")
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Output:")
 	fmt.Fprintln(writer, "  --output human|json")

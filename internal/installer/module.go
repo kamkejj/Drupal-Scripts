@@ -25,7 +25,7 @@ var configIndicatorYML string
 var configSettingsYML string
 
 const (
-	installationSchemaVersion = "6"
+	installationSchemaVersion = "7"
 	defaultDrupalVersion      = 11
 	minimumDrupalVersion      = 8
 	maximumDrupalVersion      = 12
@@ -64,11 +64,10 @@ const (
 type Effect string
 
 const (
-	effectFilesystem  Effect = "filesystem"
-	effectProcess     Effect = "process"
-	effectNetwork     Effect = "network"
-	effectHostChange  Effect = "host_change"
-	effectDestructive Effect = "destructive"
+	effectFilesystem Effect = "filesystem"
+	effectProcess    Effect = "process"
+	effectNetwork    Effect = "network"
+	effectHostChange Effect = "host_change"
 )
 
 type Disposition string
@@ -95,7 +94,6 @@ type InstallationRequest struct {
 	ParentDirectory  string           `json:"parent_directory"`
 	DockerProvider   DockerProvider   `json:"docker_provider"`
 	DrupalVersion    int              `json:"drupal_version"`
-	GenerateContent  bool             `json:"generate_content"`
 	AdminUsername    string           `json:"admin_username"`
 	AdminPasswordEnv string           `json:"admin_password_env,omitempty"`
 }
@@ -320,7 +318,7 @@ func (module *installationModule) Plan(ctx context.Context, request Installation
 			continue
 		}
 		for _, effect := range step.Effects {
-			if effect == effectNetwork || effect == effectHostChange || effect == effectDestructive {
+			if effect == effectNetwork || effect == effectHostChange {
 				approvals[effect] = true
 			}
 		}
@@ -380,7 +378,6 @@ func (module *installationModule) normalizeRequest(request InstallationRequest) 
 	}
 	request.ParentDirectory = filepath.Clean(parent)
 	if module.config.BrowserInstaller {
-		request.GenerateContent = false
 		request.AdminUsername = ""
 		request.AdminPasswordEnv = ""
 	} else if request.AdminUsername == "" {
@@ -520,15 +517,10 @@ func (module *installationModule) buildSteps(request InstallationRequest, inspec
 	appendStep(InstallationStep{ID: "drupal.site", Summary: "Install Drupal site", DependsOn: []string{"drupal.settings"}, Disposition: dispositionCreate, Effects: []Effect{effectFilesystem, effectProcess}, Retry: retryReconcile})
 	appendStep(InstallationStep{ID: "drupal.modules", Summary: "Enable development modules", DependsOn: []string{"drupal.site"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess}, Retry: retrySafe})
 	appendStep(InstallationStep{ID: "drupal.config", Summary: "Import Drupal configuration", DependsOn: []string{"drupal.modules"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess}, Retry: retrySafe})
-	if request.GenerateContent {
-		appendStep(InstallationStep{ID: "drupal.sample_content", Summary: "Replace generated sample content", DependsOn: []string{"drupal.config"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess, effectDestructive}, Retry: retryManual})
-	} else {
-		appendStep(InstallationStep{ID: "drupal.sample_content", Summary: "Skip sample content", DependsOn: []string{"drupal.config"}, Disposition: dispositionNoOp, Retry: retrySafe})
-	}
-	lastStepID := "drupal.sample_content"
+	lastStepID := "drupal.config"
 	if len(module.config.ComposerPackages) > 0 {
 		lastStepID = module.config.dependencyStepID()
-		appendStep(InstallationStep{ID: lastStepID, Summary: "Install " + module.config.ProductName, DependsOn: []string{"drupal.sample_content"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess, effectNetwork}, Retry: retryReconcile})
+		appendStep(InstallationStep{ID: lastStepID, Summary: "Install " + module.config.ProductName, DependsOn: []string{"drupal.config"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess, effectNetwork}, Retry: retryReconcile})
 	}
 	if len(module.config.EnabledModules) > 0 {
 		appendStep(InstallationStep{ID: module.config.modulesStepID(), Summary: "Enable " + module.config.ProductName + " modules", DependsOn: []string{lastStepID}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess}, Retry: retrySafe})
@@ -719,12 +711,6 @@ func (module *installationModule) applyStep(ctx context.Context, plan Installati
 		return run("ddev", args, plan.ProjectPath)
 	case "drupal.config":
 		return run("ddev", []string{"drush", "config:import", "--partial", "--yes"}, plan.ProjectPath)
-	case "drupal.sample_content":
-		result, err := run("ddev", []string{"drush", "genu", "10", "--kill", "--roles=content_editor"}, plan.ProjectPath)
-		if err != nil {
-			return result, err
-		}
-		return run("ddev", []string{"drush", "genc", "25", "-y", "--kill", "--roles=content_editor", "--skip-fields=field_tags"}, plan.ProjectPath)
 	default:
 		return CommandResult{}, fmt.Errorf("unknown installation step %s", step.ID)
 	}
@@ -879,7 +865,7 @@ func (module *installationModule) validatePlan(plan InstallationPlan) *Installat
 		failure := installationFailure("invalid_plan", "", "installation plan digest is invalid", false, "create a new plan")
 		return &failure
 	}
-	known := map[string]bool{"host.platform": true, "host.homebrew": true, "runtime.install": true, "runtime.start": true, "host.composer": true, "host.ddev": true, "project.create": true, "ddev.configure": true, "ddev.start": true, "drupal.dependencies": true, "drupal.settings": true, "drupal.site": true, "drupal.modules": true, "drupal.config": true, "drupal.sample_content": true, "cms.create": true, "cms.launch": true}
+	known := map[string]bool{"host.platform": true, "host.homebrew": true, "runtime.install": true, "runtime.start": true, "host.composer": true, "host.ddev": true, "project.create": true, "ddev.configure": true, "ddev.start": true, "drupal.dependencies": true, "drupal.settings": true, "drupal.site": true, "drupal.modules": true, "drupal.config": true, "cms.create": true, "cms.launch": true}
 	if len(module.config.ComposerPackages) > 0 {
 		known[module.config.dependencyStepID()] = true
 	}

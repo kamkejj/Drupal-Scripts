@@ -64,8 +64,6 @@ func TestInstallTUIBuildsPlanThroughGuidedFlow(t *testing.T) {
 	model.Update(tuiKey('i', "i"))
 	model.Update(tuiKey('t', "t"))
 	model.Update(tuiKey('e', "e"))
-	model.Update(tuiKey(tea.KeyEnter, ""))
-	model.Update(tuiKey(' ', " "))
 	_, command := model.Update(tuiKey(tea.KeyEnter, ""))
 
 	if model.stage != installTUIPlanning {
@@ -84,7 +82,7 @@ func TestInstallTUIBuildsPlanThroughGuidedFlow(t *testing.T) {
 	if module.request.ProjectName != "quick-site" || module.request.ParentDirectory != "/projects" {
 		t.Fatalf("request = %#v", module.request)
 	}
-	if module.request.DockerProvider != colima || module.request.DrupalVersion != 12 || !module.request.GenerateContent || module.request.AdminUsername != "admin" {
+	if module.request.DockerProvider != colima || module.request.DrupalVersion != 12 || module.request.AdminUsername != "admin" {
 		t.Fatalf("request = %#v", module.request)
 	}
 	if module.request.AdminPasswordEnv != "" {
@@ -136,7 +134,7 @@ func TestCMSTUISkipsCoreVersionAndContentChoices(t *testing.T) {
 	}
 	commands := command().(tea.BatchMsg)
 	model.Update(commands[0]())
-	if module.request.DrupalVersion != 11 || module.request.GenerateContent || module.request.AdminUsername != "" {
+	if module.request.DrupalVersion != 11 || module.request.AdminUsername != "" {
 		t.Fatalf("request = %#v", module.request)
 	}
 }
@@ -347,7 +345,6 @@ func TestInstallTUIRendersEveryStage(t *testing.T) {
 		{stage: installTUIProvider, text: "Choose a container runtime"},
 		{stage: installTUIVersion, text: "Choose a Drupal version"},
 		{stage: installTUIProject, text: "Name your Drupal project"},
-		{stage: installTUIContent, text: "Generate sample content?"},
 		{stage: installTUIPlanning, text: "Planning is read-only"},
 		{stage: installTUIReview, text: "Installation plan"},
 		{stage: installTUIApplying, text: "Installing Drupal 11"},

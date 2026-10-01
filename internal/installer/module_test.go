@@ -166,7 +166,7 @@ func TestConfiguredExtensionPlanReusesDrupalInstallAndAddsSteps(t *testing.T) {
 				t.Fatalf("installation type = %q", plan.Request.InstallationType)
 			}
 			dependencies := findStep(t, plan, testExtensionConfig.dependencyStepID())
-			if len(dependencies.DependsOn) != 1 || dependencies.DependsOn[0] != "drupal.sample_content" || dependencies.Disposition != dispositionModify || dependencies.Retry != retryReconcile || !containsEffect(dependencies.Effects, effectNetwork) {
+			if len(dependencies.DependsOn) != 1 || dependencies.DependsOn[0] != "drupal.config" || dependencies.Disposition != dispositionModify || dependencies.Retry != retryReconcile || !containsEffect(dependencies.Effects, effectNetwork) {
 				t.Fatalf("configured dependencies step = %#v", dependencies)
 			}
 			modules := findStep(t, plan, testExtensionConfig.modulesStepID())
@@ -185,7 +185,6 @@ func TestCMSPlanUsesDistinctBrowserInstallerWorkflow(t *testing.T) {
 	module := newTestModuleForConfig(runner, testCMSConfig)
 	request := testRequest(t.TempDir())
 	request.InstallationType = testCMSConfig.Type
-	request.GenerateContent = true
 	request.AdminUsername = "ignored"
 	request.AdminPasswordEnv = "IGNORED_PASSWORD"
 
@@ -194,7 +193,7 @@ func TestCMSPlanUsesDistinctBrowserInstallerWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Request.GenerateContent || plan.Request.AdminUsername != "" || plan.Request.AdminPasswordEnv != "" {
+	if plan.Request.AdminUsername != "" || plan.Request.AdminPasswordEnv != "" {
 		t.Fatalf("CMS plan retained core-only inputs: %#v", plan.Request)
 	}
 	for _, id := range []string{"project.create", "ddev.configure", "ddev.start", "cms.create", "cms.launch", testCMSConfig.modulesStepID()} {
@@ -293,14 +292,13 @@ func TestConfiguredExtensionRejectsUnsupportedDrupalVersionsBeforeInspection(t *
 	}
 }
 
-func TestPlanNormalizesRequestAndCollectsDestructiveApproval(t *testing.T) {
+func TestPlanNormalizesRequestWithoutSampleContent(t *testing.T) {
 	parent := t.TempDir()
 	runner := &scriptedRunner{paths: installedTools()}
 	module := newTestModule(runner)
 	request := testRequest(parent)
 	request.ProjectName = "  Agent Site  "
 	request.AdminUsername = ""
-	request.GenerateContent = true
 
 	plan, err := module.Plan(context.Background(), request)
 
@@ -313,12 +311,13 @@ func TestPlanNormalizesRequestAndCollectsDestructiveApproval(t *testing.T) {
 	if !filepath.IsAbs(plan.Request.ParentDirectory) || plan.ProjectPath != filepath.Join(parent, "agent-site") {
 		t.Fatalf("paths = parent %q, project %q", plan.Request.ParentDirectory, plan.ProjectPath)
 	}
-	if !containsEffect(plan.RequiredApprovals, effectDestructive) {
-		t.Fatalf("approvals = %#v", plan.RequiredApprovals)
+	for _, step := range plan.Steps {
+		if step.ID == "drupal.sample_content" {
+			t.Fatalf("unexpected sample content step = %#v", step)
+		}
 	}
-	sampleStep := findStep(t, plan, "drupal.sample_content")
-	if sampleStep.Disposition != dispositionModify || sampleStep.Retry != retryManual || !containsEffect(sampleStep.Effects, effectDestructive) {
-		t.Fatalf("sample content step = %#v", sampleStep)
+	if plan.Steps[len(plan.Steps)-1].ID != "drupal.config" {
+		t.Fatalf("final step = %#v", plan.Steps[len(plan.Steps)-1])
 	}
 }
 
@@ -852,6 +851,37 @@ func TestApplyRejectsBlockedPlanAndMismatchedDigestBeforeInspection(t *testing.T
 			}
 			if len(runner.calls) != callCount {
 				t.Fatalf("Apply() inspected before rejecting: %#v", runner.calls[callCount:])
+			}
+		})
+	}
+}
+
+func TestPreviousSchemaPlansCannotApplyOrVerify(t *testing.T) {
+	runner := &scriptedRunner{paths: installedTools()}
+	module := newTestModule(runner)
+	plan, err := module.Plan(context.Background(), testRequest(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.SchemaVersion = "6"
+	plan.Request.SchemaVersion = "6"
+	plan.Digest, err = planDigest(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.PlanID = plan.Digest[:12]
+	calls := len(runner.calls)
+	for name, run := range map[string]func() (InstallationResult, error){
+		"apply":  func() (InstallationResult, error) { return module.Apply(context.Background(), plan, Approval{}, nil) },
+		"verify": func() (InstallationResult, error) { return module.Verify(context.Background(), plan, nil) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			result, err := run()
+			if err == nil || result.Failure == nil || result.Failure.Code != "invalid_plan" {
+				t.Fatalf("result = %#v, error = %v", result, err)
+			}
+			if len(runner.calls) != calls {
+				t.Fatalf("unexpected external calls = %#v", runner.calls[calls:])
 			}
 		})
 	}

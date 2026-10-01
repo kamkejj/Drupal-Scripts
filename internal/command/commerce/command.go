@@ -57,7 +57,6 @@ func PrintUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "Approvals:")
 	fmt.Fprintln(writer, "  --allow-network       Allow downloads")
 	fmt.Fprintln(writer, "  --allow-host-changes  Allow host package and runtime changes")
-	fmt.Fprintln(writer, "  --allow-destructive   Allow destructive project operations")
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Machine output:")
 	fmt.Fprintln(writer, "  --output json         Write one JSON document to stdout")

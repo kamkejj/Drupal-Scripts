@@ -32,7 +32,6 @@ const (
 	installTUIProvider installTUIStage = iota
 	installTUIVersion
 	installTUIProject
-	installTUIContent
 	installTUIPlanning
 	installTUIReview
 	installTUIApplying
@@ -64,26 +63,25 @@ func (sink installTUIEventSink) Emit(event Event) {
 }
 
 type installTUIModel struct {
-	ctx             context.Context
-	cancel          context.CancelFunc
-	module          InstallationModule
-	config          InstallationConfig
-	parent          string
-	stage           installTUIStage
-	provider        DockerProvider
-	drupalVersion   int
-	projectName     string
-	generateContent bool
-	plan            InstallationPlan
-	result          InstallationResult
-	err             error
-	status          string
-	events          []Event
-	spinner         int
-	width           int
-	height          int
-	cancelled       bool
-	send            func(tea.Msg)
+	ctx           context.Context
+	cancel        context.CancelFunc
+	module        InstallationModule
+	config        InstallationConfig
+	parent        string
+	stage         installTUIStage
+	provider      DockerProvider
+	drupalVersion int
+	projectName   string
+	plan          InstallationPlan
+	result        InstallationResult
+	err           error
+	status        string
+	events        []Event
+	spinner       int
+	width         int
+	height        int
+	cancelled     bool
+	send          func(tea.Msg)
 }
 
 func newInstallTUIModel(ctx context.Context, cancel context.CancelFunc, module InstallationModule, config InstallationConfig, parent string) *installTUIModel {
@@ -211,11 +209,8 @@ func (model *installTUIModel) handleKey(message tea.KeyPressMsg) (tea.Model, tea
 		case "enter":
 			if strings.TrimSpace(model.projectName) != "" {
 				model.status = ""
-				if model.config.BrowserInstaller {
-					model.stage = installTUIPlanning
-					return model, tea.Batch(model.planCommand(), installTUITick())
-				}
-				model.stage = installTUIContent
+				model.stage = installTUIPlanning
+				return model, tea.Batch(model.planCommand(), installTUITick())
 			} else {
 				model.status = "Project name is required"
 			}
@@ -223,20 +218,6 @@ func (model *installTUIModel) handleKey(message tea.KeyPressMsg) (tea.Model, tea
 			if key.Text != "" {
 				model.projectName += key.Text
 			}
-		}
-	case installTUIContent:
-		switch message.String() {
-		case "up", "down", "left", "right", "tab", "shift+tab", "space", "y", "n":
-			if message.String() == "y" {
-				model.generateContent = true
-			} else if message.String() == "n" {
-				model.generateContent = false
-			} else {
-				model.generateContent = !model.generateContent
-			}
-		case "enter":
-			model.stage = installTUIPlanning
-			return model, tea.Batch(model.planCommand(), installTUITick())
 		}
 	case installTUIReview:
 		if model.err != nil || model.plan.Blocked {
@@ -262,7 +243,6 @@ func (model *installTUIModel) planCommand() tea.Cmd {
 		ParentDirectory:  model.parent,
 		DockerProvider:   model.provider,
 		DrupalVersion:    model.drupalVersion,
-		GenerateContent:  model.generateContent,
 		AdminUsername:    adminUsername,
 	}
 	return func() tea.Msg {
@@ -301,8 +281,6 @@ func (model *installTUIModel) View() tea.View {
 		model.renderVersion(&body)
 	case installTUIProject:
 		model.renderProject(&body)
-	case installTUIContent:
-		model.renderContent(&body)
 	case installTUIPlanning:
 		model.renderBusy(&body, "Inspecting your development environment")
 	case installTUIReview:
@@ -351,14 +329,6 @@ func (model *installTUIModel) renderProject(body *strings.Builder) {
 		body.WriteString("\n  " + tuiRed + model.status + tuiReset + "\n")
 	}
 	model.renderFooter(body, "enter continue", "esc cancel")
-}
-
-func (model *installTUIModel) renderContent(body *strings.Builder) {
-	body.WriteString(tuiBold + "  Generate sample content?" + tuiReset + "\n")
-	body.WriteString(tuiMuted + "  This adds test users and content after installation." + tuiReset + "\n\n")
-	model.renderChoice(body, !model.generateContent, "No", "Start with a clean Drupal site")
-	model.renderChoice(body, model.generateContent, "Yes", "Run destructive content generators")
-	model.renderFooter(body, "space toggle", "enter inspect")
 }
 
 func (model *installTUIModel) renderBusy(body *strings.Builder, message string) {

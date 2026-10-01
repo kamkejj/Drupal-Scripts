@@ -88,7 +88,6 @@ func TestRunApplyCommandHonorsApprovalsAndMachineStreams(t *testing.T) {
 		"--plan", writeTestPlan(t, plan),
 		"--allow-network",
 		"--allow-host-changes",
-		"--allow-destructive",
 		"--output", "json",
 		"--events", "jsonl",
 	}, &stdout, &stderr)
@@ -107,7 +106,7 @@ func TestRunApplyCommandHonorsApprovalsAndMachineStreams(t *testing.T) {
 	if module.approval.PlanDigest != plan.Digest {
 		t.Fatalf("approval digest = %q", module.approval.PlanDigest)
 	}
-	for _, effect := range []Effect{effectNetwork, effectHostChange, effectDestructive} {
+	for _, effect := range []Effect{effectNetwork, effectHostChange} {
 		if !module.approval.AllowedEffects[effect] {
 			t.Errorf("approval omitted %s", effect)
 		}
@@ -200,8 +199,35 @@ func TestCMSPlanCommandUsesFixedDrupalVersion(t *testing.T) {
 	if exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("exit = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
-	if module.request.InstallationType != testCMSConfig.Type || module.request.DrupalVersion != 11 || module.request.GenerateContent || module.request.AdminUsername != "" {
+	if module.request.InstallationType != testCMSConfig.Type || module.request.DrupalVersion != 11 || module.request.AdminUsername != "" {
 		t.Fatalf("request = %#v", module.request)
+	}
+}
+
+func TestRemovedContentAndDestructiveFlagsAreRejected(t *testing.T) {
+	module := &cliTestModule{}
+	for _, config := range []InstallationConfig{testDrupalConfig, testExtensionConfig} {
+		t.Run(string(config.Type), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			exitCode := runPlanCommandForConfig(context.Background(), module, config, []string{"--output", "json", "--generate-content"}, &stdout, &stderr)
+			if exitCode != 2 || module.request.ProjectName != "" {
+				t.Fatalf("plan accepted removed option: exit = %d, request = %#v", exitCode, module.request)
+			}
+			failure := decodeSingleJSON[InstallationResult](t, stdout.Bytes())
+			if failure.Failure == nil || failure.Failure.Code != "invalid_request" {
+				t.Fatalf("plan failure = %#v", failure)
+			}
+			stdout.Reset()
+			stderr.Reset()
+			exitCode = runApplyCommandForConfig(context.Background(), module, config, []string{"--plan", writeTestPlan(t, InstallationPlan{}), "--output", "json", "--allow-destructive"}, &stdout, &stderr)
+			if exitCode != 2 {
+				t.Fatalf("apply accepted removed option: exit = %d", exitCode)
+			}
+			failure = decodeSingleJSON[InstallationResult](t, stdout.Bytes())
+			if failure.Failure == nil || failure.Failure.Code != "invalid_request" {
+				t.Fatalf("apply failure = %#v", failure)
+			}
+		})
 	}
 }
 

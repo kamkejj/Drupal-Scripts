@@ -57,7 +57,7 @@ Navigate to the parent directory where you want your Drupal project created and 
    /path/to/Drupal-Scripts/binary/macos/dropkit install
    ```
 
-3. **Complete the terminal wizard** - Choose a container runtime and Drupal version, name the project, and decide whether to generate sample content
+3. **Complete the terminal wizard** - Choose a container runtime and Drupal version, and name the project
 
 4. **Review and authorize the plan** - The full-screen TUI shows every planned step and the network, host, or destructive effects requiring approval before anything is changed
 
@@ -158,7 +158,6 @@ Effect authorization flags are:
 
 - `--allow-network` for downloads
 - `--allow-host-changes` for host package installation and runtime changes
-- `--allow-destructive` for operations such as replacing generated sample content
 
 If a plan reports a blocker, resolve it and create a new plan. Docker Desktop must already be running; Colima can be started by an explicitly authorized plan.
 
