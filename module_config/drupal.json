@@ -1,0 +1,58 @@
+{
+  "versions": {
+    "8-11": {
+      "composer_packages": [
+        "drush/drush",
+        "drupal/admin_toolbar",
+        "drupal/token",
+        "drupal/pathauto",
+        "drupal/config_ignore",
+        "drupal/config_split",
+        "drupal/devel",
+        "drupal/environment_indicator",
+        "drupal/better_exposed_filters",
+        "drupal/key",
+        "drupal/webprofiler",
+        "drupal/diff:^2.0@beta",
+        "drupal/ultimate_cron:^2.0@beta"
+      ],
+      "enabled_modules": [
+        "admin_toolbar",
+        "admin_toolbar_tools",
+        "config_split",
+        "devel",
+        "environment_indicator",
+        "environment_indicator_ui",
+        "token",
+        "pathauto",
+        "config_ignore",
+        "better_exposed_filters",
+        "key",
+        "webprofiler",
+        "diff",
+        "ultimate_cron",
+        "devel_generate"
+      ]
+    },
+    "12": {
+      "composer_packages": [
+        "drush/drush",
+        "drupal/token",
+        "drupal/devel",
+        "drupal/environment_indicator"
+      ],
+      "enabled_modules": [
+        "devel",
+        "devel_generate",
+        "environment_indicator",
+        "environment_indicator_ui",
+        "environment_indicator_toolbar",
+        "token"
+      ]
+    }
+  },
+  "site_install": {
+    "profile": "standard",
+    "site_name": "Super Awesome Site"
+  }
+}

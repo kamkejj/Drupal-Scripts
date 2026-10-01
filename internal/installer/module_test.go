@@ -196,13 +196,19 @@ func TestCMSPlanUsesDistinctBrowserInstallerWorkflow(t *testing.T) {
 	if plan.Request.AdminUsername != "" || plan.Request.AdminPasswordEnv != "" {
 		t.Fatalf("CMS plan retained core-only inputs: %#v", plan.Request)
 	}
-	for _, id := range []string{"project.create", "ddev.configure", "ddev.start", "cms.create", "cms.launch", testCMSConfig.modulesStepID()} {
+	for _, id := range []string{"project.create", "ddev.configure", "ddev.start", "cms.create", testCMSConfig.dependencyStepID(), "cms.launch", testCMSConfig.modulesStepID()} {
 		findStep(t, plan, id)
 	}
 	for _, step := range plan.Steps {
 		if step.ID == "host.composer" || strings.HasPrefix(step.ID, "drupal.") {
 			t.Fatalf("CMS plan contains Drupal core workflow step %#v", step)
 		}
+	}
+	if got := findStep(t, plan, "cms.launch").DependsOn; len(got) != 1 || got[0] != testCMSConfig.dependencyStepID() {
+		t.Fatalf("launch dependencies = %#v", got)
+	}
+	if got := findStep(t, plan, testCMSConfig.dependencyStepID()); got.Retry != retryReconcile || !containsEffect(got.Effects, effectNetwork) {
+		t.Fatalf("CMS Composer step = %#v", got)
 	}
 	if plan.Steps[len(plan.Steps)-1].ID != testCMSConfig.modulesStepID() {
 		t.Fatalf("final step = %#v", plan.Steps[len(plan.Steps)-1])
@@ -238,10 +244,13 @@ func TestCMSPlanResumesExistingCMSProjectWithoutDownloadingAgain(t *testing.T) {
 	if findStep(t, plan, "project.create").Disposition != dispositionNoOp || findStep(t, plan, "cms.create").Disposition != dispositionNoOp {
 		t.Fatalf("resume steps = %#v", plan.Steps)
 	}
+	if findStep(t, plan, testCMSConfig.dependencyStepID()).Disposition != dispositionModify {
+		t.Fatalf("dependency step = %#v", findStep(t, plan, testCMSConfig.dependencyStepID()))
+	}
 	if findStep(t, plan, testCMSConfig.modulesStepID()).Disposition != dispositionModify {
 		t.Fatalf("module step = %#v", findStep(t, plan, testCMSConfig.modulesStepID()))
 	}
-	if containsEffect(plan.RequiredApprovals, effectNetwork) {
+	if !containsEffect(plan.RequiredApprovals, effectNetwork) {
 		t.Fatalf("resume approvals = %#v", plan.RequiredApprovals)
 	}
 }
@@ -521,7 +530,7 @@ func TestCMSApplyUsesDDEVProjectTemplateAndLaunchesAssistant(t *testing.T) {
 	}
 	emit := func(Event) {}
 
-	for _, id := range []string{"project.create", "ddev.configure", "ddev.start", "cms.create", "cms.launch", testCMSConfig.modulesStepID()} {
+	for _, id := range []string{"project.create", "ddev.configure", "ddev.start", "cms.create", testCMSConfig.dependencyStepID(), "cms.launch", testCMSConfig.modulesStepID()} {
 		if _, err := module.applyStep(context.Background(), plan, InstallationStep{ID: id}, emit); err != nil {
 			t.Fatalf("apply %s: %v", id, err)
 		}
@@ -534,6 +543,7 @@ func TestCMSApplyUsesDDEVProjectTemplateAndLaunchesAssistant(t *testing.T) {
 		"ddev config --project-type=drupal11 --docroot=web",
 		"ddev start",
 		"ddev composer create-project drupal/cms",
+		"ddev composer require drupal/token",
 		"ddev launch",
 		"ddev drush status --field=bootstrap --format=string",
 		"ddev drush en -y " + strings.Join(testCMSConfig.EnabledModules, " "),
@@ -1097,7 +1107,7 @@ func TestVerifyChecksDrupalCMSPackageWithoutInstalledSiteSettings(t *testing.T) 
 	if err != nil || result.Status != "succeeded" || result.SiteURL != "https://cms.ddev.site" {
 		t.Fatalf("Verify() result = %#v, error = %v", result, err)
 	}
-	if len(result.Verification) != 5 || result.Verification[3].ID != "cms.package" || !result.Verification[3].Passed || result.Verification[4].ID != "cms.modules" || !result.Verification[4].Passed {
+	if len(result.Verification) != 6 || result.Verification[3].ID != "cms.package" || !result.Verification[3].Passed || result.Verification[4].ID != "cms.package" || !result.Verification[4].Passed || result.Verification[5].ID != "cms.modules" || !result.Verification[5].Passed {
 		t.Fatalf("checks = %#v", result.Verification)
 	}
 	lastCall := runner.calls[len(runner.calls)-1]

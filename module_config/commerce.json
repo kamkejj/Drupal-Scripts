@@ -1,0 +1,16 @@
+{
+  "composer_packages": [
+    "drupal/commerce:^3.3"
+  ],
+  "enabled_modules": [
+    "commerce",
+    "commerce_cart",
+    "commerce_checkout",
+    "commerce_order",
+    "commerce_store",
+    "commerce_price",
+    "commerce_tax",
+    "commerce_product",
+    "commerce_payment"
+  ]
+}

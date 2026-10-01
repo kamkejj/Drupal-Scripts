@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	installconfig "dropkit/config"
 )
 
 func TestNonInteractiveCommandNeverPrompts(t *testing.T) {
@@ -60,16 +62,20 @@ func TestInstallationConfigOwnsCommercePolicy(t *testing.T) {
 		"commerce_payment",
 	}
 
+	modules, err := installconfig.LoadModules("commerce")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if config.CommandName != "commerce" || config.Type != "commerce" || config.ProductName != "Drupal Commerce" {
 		t.Fatalf("identity config = %#v", config)
 	}
 	if config.MinimumDrupalVersion != 10 || config.MaximumDrupalVersion != 11 {
 		t.Fatalf("version config = %d through %d", config.MinimumDrupalVersion, config.MaximumDrupalVersion)
 	}
-	if !slices.Equal(config.ComposerPackages, wantPackages) {
-		t.Fatalf("Composer packages = %#v, want %#v", config.ComposerPackages, wantPackages)
+	if !slices.Equal(modules.ComposerPackages, wantPackages) {
+		t.Fatalf("Composer packages = %#v, want %#v", modules.ComposerPackages, wantPackages)
 	}
-	if !slices.Equal(config.EnabledModules, wantModules) {
-		t.Fatalf("enabled modules = %#v, want %#v", config.EnabledModules, wantModules)
+	if !slices.Equal(modules.EnabledModules, wantModules) {
+		t.Fatalf("enabled modules = %#v, want %#v", modules.EnabledModules, wantModules)
 	}
 }

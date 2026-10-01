@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	installconfig "dropkit/config"
 	"dropkit/internal/installer"
 )
 
@@ -14,24 +15,18 @@ var config = installer.InstallationConfig{
 	ProductName:          "Drupal Commerce",
 	MinimumDrupalVersion: 10,
 	MaximumDrupalVersion: 11,
-	ComposerPackages:     []string{"drupal/commerce:^3.3"},
-	EnabledModules: []string{
-		"commerce",
-		"commerce_cart",
-		"commerce_checkout",
-		"commerce_order",
-		"commerce_store",
-		"commerce_price",
-		"commerce_tax",
-		"commerce_product",
-		"commerce_payment",
-	},
 }
 
-var command = installer.NewCommand(config, PrintUsage)
-
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	return command.Run(args, stdin, stdout, stderr)
+	modules, err := installconfig.LoadModules("commerce")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	loaded := config
+	loaded.ComposerPackages = modules.ComposerPackages
+	loaded.EnabledModules = modules.EnabledModules
+	return installer.NewCommand(loaded, PrintUsage).Run(args, stdin, stdout, stderr)
 }
 
 func PrintUsage(writer io.Writer) {
@@ -47,12 +42,17 @@ func PrintUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "  verify    Verify a saved Commerce plan without modifying the host")
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Commerce package:")
-	for _, packageName := range config.ComposerPackages {
-		fmt.Fprintln(writer, "  "+packageName)
+	modules, err := installconfig.LoadModules("commerce")
+	if err == nil {
+		for _, packageName := range modules.ComposerPackages {
+			fmt.Fprintln(writer, "  "+packageName)
+		}
 	}
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Enabled modules:")
-	fmt.Fprintln(writer, "  "+strings.Join(config.EnabledModules, ", "))
+	if err == nil {
+		fmt.Fprintln(writer, "  "+strings.Join(modules.EnabledModules, ", "))
+	}
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Approvals:")
 	fmt.Fprintln(writer, "  --allow-network       Allow downloads")

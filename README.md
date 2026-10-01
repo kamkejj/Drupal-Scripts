@@ -30,6 +30,8 @@ Run `./install.sh --help` for all available options.
    which dropkit
    ```
 
+For a copied binary, put the three JSON files from `module_config/` in a `module_config/` directory beside the executable, or set `DROPKIT_MODULE_CONFIG_DIR` to the absolute path of the repository's `module_config/` directory. Dropkit reads these files at runtime, so changes do not require rebuilding. The repository build at `binary/macos/dropkit` finds the repository's `module_config/` automatically.
+
 Now you can run `dropkit` from any directory.
 
 ### Option 3: Run Directly

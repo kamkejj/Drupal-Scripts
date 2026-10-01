@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"dropkit/config"
 )
 
 //go:embed config/environment_indicator.indicator.yml
@@ -506,7 +508,12 @@ func (module *installationModule) buildSteps(request InstallationRequest, inspec
 			cmsEffects = nil
 		}
 		appendStep(InstallationStep{ID: "cms.create", Summary: "Download Drupal CMS", DependsOn: []string{"ddev.start"}, Disposition: cmsDisposition, Effects: cmsEffects, Retry: retryManual})
-		appendStep(InstallationStep{ID: "cms.launch", Summary: "Launch Drupal CMS setup assistant", DependsOn: []string{"cms.create"}, Disposition: dispositionModify, Effects: []Effect{effectProcess}, Retry: retrySafe})
+		launchDependency := "cms.create"
+		if len(module.config.ComposerPackages) > 0 {
+			launchDependency = module.config.dependencyStepID()
+			appendStep(InstallationStep{ID: launchDependency, Summary: "Install Drupal CMS Composer packages", DependsOn: []string{"cms.create"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess, effectNetwork}, Retry: retryReconcile})
+		}
+		appendStep(InstallationStep{ID: "cms.launch", Summary: "Launch Drupal CMS setup assistant", DependsOn: []string{launchDependency}, Disposition: dispositionModify, Effects: []Effect{effectProcess}, Retry: retrySafe})
 		if len(module.config.EnabledModules) > 0 {
 			appendStep(InstallationStep{ID: module.config.modulesStepID(), Summary: "Wait for setup and enable required Drupal CMS modules", DependsOn: []string{"cms.launch"}, Disposition: dispositionModify, Effects: []Effect{effectFilesystem, effectProcess}, Retry: retrySafe})
 		}
@@ -680,7 +687,11 @@ func (module *installationModule) applyStep(ctx context.Context, plan Installati
 	case "cms.launch":
 		return run("ddev", []string{"launch"}, plan.ProjectPath)
 	case "drupal.dependencies":
-		contribCommand := append([]string{"composer", "require"}, drupalContribPackages(plan.Request.DrupalVersion)...)
+		drupalConfig, err := config.LoadDrupal()
+		if err != nil {
+			return CommandResult{}, err
+		}
+		contribCommand := append([]string{"composer", "require"}, drupalConfig.Versions[drupalVersionGroup(plan.Request.DrupalVersion)].ComposerPackages...)
 		commands := [][]string{
 			{"composer", "install"},
 			{"composer", "require", "drupal/core-dev:" + drupalProjectConstraint(plan.Request.DrupalVersion), "--dev", "-W"},
@@ -703,10 +714,18 @@ func (module *installationModule) applyStep(ctx context.Context, plan Installati
 				return CommandResult{}, fmt.Errorf("environment variable %s is empty", plan.Request.AdminPasswordEnv)
 			}
 		}
-		args := []string{"drush", "site:install", "standard", "--yes", "--account-name=" + plan.Request.AdminUsername, "--account-pass=" + password, "--site-name=Super Awesome Site"}
+		drupalConfig, err := config.LoadDrupal()
+		if err != nil {
+			return CommandResult{}, err
+		}
+		args := []string{"drush", "site:install", drupalConfig.SiteInstall.Profile, "--yes", "--account-name=" + plan.Request.AdminUsername, "--account-pass=" + password, "--site-name=" + drupalConfig.SiteInstall.SiteName}
 		return run("ddev", args, plan.ProjectPath)
 	case "drupal.modules":
-		modules := drupalEnabledModules(plan.Request.DrupalVersion)
+		drupalConfig, err := config.LoadDrupal()
+		if err != nil {
+			return CommandResult{}, err
+		}
+		modules := drupalConfig.Versions[drupalVersionGroup(plan.Request.DrupalVersion)].EnabledModules
 		args := append([]string{"drush", "en", "-y"}, modules...)
 		return run("ddev", args, plan.ProjectPath)
 	case "drupal.config":
@@ -888,18 +907,11 @@ func drupalProjectConstraint(version int) string {
 	return fmt.Sprintf("^%d", version)
 }
 
-func drupalContribPackages(version int) []string {
+func drupalVersionGroup(version int) string {
 	if version == maximumDrupalVersion {
-		return []string{"drush/drush", "drupal/token", "drupal/devel", "drupal/environment_indicator"}
+		return "12"
 	}
-	return []string{"drush/drush", "drupal/admin_toolbar", "drupal/token", "drupal/pathauto", "drupal/config_ignore", "drupal/config_split", "drupal/devel", "drupal/environment_indicator", "drupal/better_exposed_filters", "drupal/key", "drupal/webprofiler", "drupal/diff:^2.0@beta", "drupal/ultimate_cron:^2.0@beta"}
-}
-
-func drupalEnabledModules(version int) []string {
-	if version == maximumDrupalVersion {
-		return []string{"devel", "devel_generate", "environment_indicator", "environment_indicator_ui", "environment_indicator_toolbar", "token"}
-	}
-	return []string{"admin_toolbar", "admin_toolbar_tools", "config_split", "devel", "environment_indicator", "environment_indicator_ui", "environment_indicator_toolbar", "token", "pathauto", "config_ignore", "better_exposed_filters", "key", "webprofiler", "diff", "ultimate_cron", "devel_generate"}
+	return "8-11"
 }
 
 func versionChoices(minimum, maximum int) string {

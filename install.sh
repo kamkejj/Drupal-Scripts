@@ -37,7 +37,8 @@ fi
 
 # Default installation path
 DEFAULT_INSTALL_PATH="/usr/local/bin/dropkit"
-DEFAULT_BINARY_PATH="./binary/macos/dropkit"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_BINARY_PATH="$SCRIPT_DIR/binary/macos/dropkit"
 
 # Function to check if a command exists
 command_exists() {
@@ -53,6 +54,21 @@ check_sudo_access() {
     fi
 }
 
+# Build the binary from the source alongside this script
+build_binary() {
+    if ! command_exists go; then
+        print_error "Go is required to build dropkit."
+        return 1
+    fi
+
+    print_status "Building dropkit from $SCRIPT_DIR..."
+    mkdir -p "$SCRIPT_DIR/binary/macos"
+    (cd "$SCRIPT_DIR" && go build -o binary/macos/dropkit .) || {
+        print_error "Failed to build dropkit."
+        return 1
+    }
+}
+
 # Function to install the binary
 install_binary() {
     local install_path="$1"
@@ -60,7 +76,7 @@ install_binary() {
     
     # Check if binary exists
     if [ ! -f "$binary_path" ]; then
-        print_error "Binary not found at $binary_path. Please build it first with 'go build -o binary/macos/dropkit'"
+        print_error "Binary not found at $binary_path."
         exit 1
     fi
     
@@ -88,6 +104,20 @@ install_binary() {
         chmod +x "$install_path"
     fi
     
+    local config_source="$SCRIPT_DIR/module_config"
+    local config_target="$(dirname "$install_path")/module_config"
+    if [ ! -d "$config_source" ]; then
+        print_error "Module configuration not found at $config_source"
+        exit 1
+    fi
+    if [[ $install_path == /usr/local/bin* ]] || [[ $install_path == /usr/bin* ]]; then
+        sudo mkdir -p "$config_target"
+        sudo cp "$config_source"/{cms,commerce,drupal}.json "$config_target/"
+    else
+        mkdir -p "$config_target"
+        cp "$config_source"/{cms,commerce,drupal}.json "$config_target/"
+    fi
+
     if [ $? -eq 0 ]; then
         print_success "Successfully installed Drupal installer to $install_path"
         return 0
@@ -168,7 +198,7 @@ main() {
                 echo "Usage: $0 [OPTIONS]"
                 echo "Options:"
                 echo "  -p, --path PATH     Installation path (default: /usr/local/bin/dropkit)"
-                echo "  -b, --binary PATH   Binary path (default: ./binary/macos/dropkit)"
+                echo "  -b, --binary PATH   Binary to install after building (default: binary/macos/dropkit beside this script)"
                 echo "  --add-to-path       Add installation directory to PATH if not already there"
                 echo "  -h, --help          Show this help message"
                 exit 0
@@ -180,6 +210,10 @@ main() {
         esac
     done
     
+    if ! build_binary; then
+        exit 1
+    fi
+
     print_status "Installing Drupal 11 installer..."
     
     # Create installation directory if it doesn't exist

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "drupal": {
+      "url": "https://drupalmcp.ddev.site/mcp",
+      "directTools": [
+        "drupal_site_info"
+      ]
+    }
+  }
+}

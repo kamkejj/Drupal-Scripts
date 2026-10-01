@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	installconfig "dropkit/config"
 )
 
 func TestNonInteractiveCommandNeverPrompts(t *testing.T) {
@@ -49,6 +51,10 @@ func TestUsageDescribesCMSWorkflow(t *testing.T) {
 
 func TestInstallationConfigOwnsCMSPolicy(t *testing.T) {
 	wantModules := []string{"config", "inline_form_errors", "settings_tray", "toolbar", "syslog", "workspaces", "workspaces_ui"}
+	modules, err := installconfig.LoadModules("cms")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if config.CommandName != "cms" || config.Type != "cms" || config.ProductName != "Drupal CMS" {
 		t.Fatalf("identity config = %#v", config)
 	}
@@ -58,8 +64,8 @@ func TestInstallationConfigOwnsCMSPolicy(t *testing.T) {
 	if config.ProjectTemplate != "drupal/cms" || !config.BrowserInstaller {
 		t.Fatalf("workflow config = %#v", config)
 	}
-	if !slices.Equal(config.EnabledModules, wantModules) {
-		t.Fatalf("enabled modules = %#v, want %#v", config.EnabledModules, wantModules)
+	if !slices.Equal(modules.EnabledModules, wantModules) {
+		t.Fatalf("enabled modules = %#v, want %#v", modules.EnabledModules, wantModules)
 	}
 }
 

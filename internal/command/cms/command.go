@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	installconfig "dropkit/config"
 	"dropkit/internal/installer"
 )
 
@@ -17,21 +18,18 @@ var config = installer.InstallationConfig{
 	FixedDrupalVersion:   11,
 	ProjectTemplate:      "drupal/cms",
 	BrowserInstaller:     true,
-	EnabledModules: []string{
-		"config",
-		"inline_form_errors",
-		"settings_tray",
-		"toolbar",
-		"syslog",
-		"workspaces",
-		"workspaces_ui",
-	},
 }
 
-var command = installer.NewCommand(config, PrintUsage)
-
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	return command.Run(args, stdin, stdout, stderr)
+	modules, err := installconfig.LoadModules("cms")
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	loaded := config
+	loaded.ComposerPackages = modules.ComposerPackages
+	loaded.EnabledModules = modules.EnabledModules
+	return installer.NewCommand(loaded, PrintUsage).Run(args, stdin, stdout, stderr)
 }
 
 func PrintUsage(writer io.Writer) {
@@ -49,8 +47,18 @@ func PrintUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "Project template:")
 	fmt.Fprintln(writer, "  drupal/cms (latest stable release)")
 	fmt.Fprintln(writer)
+	fmt.Fprintln(writer, "Composer packages:")
+	modules, err := installconfig.LoadModules("cms")
+	if err == nil {
+		for _, packageName := range modules.ComposerPackages {
+			fmt.Fprintln(writer, "  "+packageName)
+		}
+	}
+	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Enabled modules:")
-	fmt.Fprintln(writer, "  "+strings.Join(config.EnabledModules, ", "))
+	if err == nil {
+		fmt.Fprintln(writer, "  "+strings.Join(modules.EnabledModules, ", "))
+	}
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Approvals:")
 	fmt.Fprintln(writer, "  --allow-network       Allow downloads")

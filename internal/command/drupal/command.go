@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 
+	installconfig "dropkit/config"
 	"dropkit/internal/installer"
 )
 
@@ -18,6 +19,10 @@ var config = installer.InstallationConfig{
 var command = installer.NewCommand(config, PrintUsage)
 
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if _, err := installconfig.LoadDrupal(); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	return command.Run(args, stdin, stdout, stderr)
 }
 

@@ -1,0 +1,12 @@
+{
+  "composer_packages": [],
+  "enabled_modules": [
+    "config",
+    "inline_form_errors",
+    "settings_tray",
+    "toolbar",
+    "syslog",
+    "workspaces",
+    "workspaces_ui"
+  ]
+}
