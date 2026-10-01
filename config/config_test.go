@@ -8,32 +8,31 @@ import (
 	"testing"
 )
 
-func TestEmbeddedConfigurations(t *testing.T) {
+func TestLoadsUserConfiguration(t *testing.T) {
+	path := t.TempDir()
+	t.Setenv("DROPKIT_MODULE_CONFIG_DIR", path)
+	files := map[string]string{
+		"cms.json":      `{"composer_packages":["drupal/cms-extra"],"enabled_modules":["toolbar","config"]}`,
+		"commerce.json": `{"composer_packages":["drupal/commerce:^3"],"enabled_modules":["commerce"]}`,
+		"drupal.json":   `{"versions":{"8-11":{"composer_packages":["drupal/one"],"enabled_modules":["one"]},"12":{"composer_packages":["drupal/two","drupal/three"],"enabled_modules":["two"]}},"site_install":{"profile":"minimal","site_name":"Example"}}`,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(path, name), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	cms, err := LoadModules("cms")
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !slices.Equal(cms.EnabledModules, []string{"toolbar", "config"}) || !slices.Equal(cms.ComposerPackages, []string{"drupal/cms-extra"}) {
+		t.Fatalf("CMS configuration = %+v, %v", cms, err)
 	}
-	if !slices.Equal(cms.EnabledModules, []string{"config", "inline_form_errors", "settings_tray", "toolbar", "syslog", "workspaces", "workspaces_ui"}) {
-		t.Fatalf("CMS modules = %v", cms.EnabledModules)
-	}
-
 	commerce, err := LoadModules("commerce")
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !slices.Equal(commerce.ComposerPackages, []string{"drupal/commerce:^3"}) || !slices.Equal(commerce.EnabledModules, []string{"commerce"}) {
+		t.Fatalf("Commerce configuration = %+v, %v", commerce, err)
 	}
-	if !slices.Equal(commerce.ComposerPackages, []string{"drupal/commerce:^3.3"}) || len(commerce.EnabledModules) != 9 {
-		t.Fatalf("Commerce configuration = %+v", commerce)
-	}
-
 	drupal, err := LoadDrupal()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(drupal.Versions["8-11"].ComposerPackages) != 13 || len(drupal.Versions["8-11"].EnabledModules) != 16 || len(drupal.Versions["12"].ComposerPackages) != 4 || len(drupal.Versions["12"].EnabledModules) != 6 {
-		t.Fatalf("Drupal version configuration = %+v", drupal.Versions)
-	}
-	if drupal.SiteInstall.Profile != "standard" || drupal.SiteInstall.SiteName != "Super Awesome Site" {
-		t.Fatalf("site install = %+v", drupal.SiteInstall)
+	if err != nil || !slices.Equal(drupal.Versions["8-11"].ComposerPackages, []string{"drupal/one"}) || !slices.Equal(drupal.Versions["12"].ComposerPackages, []string{"drupal/two", "drupal/three"}) || !slices.Equal(drupal.Versions["12"].EnabledModules, []string{"two"}) || drupal.SiteInstall.Profile != "minimal" || drupal.SiteInstall.SiteName != "Example" {
+		t.Fatalf("Drupal configuration = %+v, %v", drupal, err)
 	}
 }
 

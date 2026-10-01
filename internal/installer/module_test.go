@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"dropkit/config"
 )
 
 type scriptedRunner struct {
@@ -45,6 +47,15 @@ func newTestModuleForConfig(runner CommandRunner, config InstallationConfig) *in
 		platform:     "darwin",
 		architecture: "arm64",
 	}
+}
+
+func mustDrupalConfig(t *testing.T) config.Drupal {
+	t.Helper()
+	loaded, err := config.LoadDrupal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return loaded
 }
 
 func installedTools() map[string]string {
@@ -489,10 +500,10 @@ func TestApplyUsesSelectedDrupalVersionForComposerAndDDEV(t *testing.T) {
 			}
 			emit := func(Event) {}
 
-			if _, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "project.create"}, emit); err != nil {
+			if _, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "project.create"}, mustDrupalConfig(t), emit); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "ddev.configure"}, emit); err != nil {
+			if _, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "ddev.configure"}, mustDrupalConfig(t), emit); err != nil {
 				t.Fatal(err)
 			}
 
@@ -531,7 +542,7 @@ func TestCMSApplyUsesDDEVProjectTemplateAndLaunchesAssistant(t *testing.T) {
 	emit := func(Event) {}
 
 	for _, id := range []string{"project.create", "ddev.configure", "ddev.start", "cms.create", testCMSConfig.dependencyStepID(), "cms.launch", testCMSConfig.modulesStepID()} {
-		if _, err := module.applyStep(context.Background(), plan, InstallationStep{ID: id}, emit); err != nil {
+		if _, err := module.applyStep(context.Background(), plan, InstallationStep{ID: id}, mustDrupalConfig(t), emit); err != nil {
 			t.Fatalf("apply %s: %v", id, err)
 		}
 	}
@@ -566,7 +577,7 @@ func TestDrupalDependenciesMatchSelectedCoreVersion(t *testing.T) {
 			module := newTestModule(runner)
 			plan := InstallationPlan{ProjectPath: "/projects/site", Request: InstallationRequest{DrupalVersion: version}}
 
-			_, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "drupal.dependencies"}, func(Event) {})
+			_, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "drupal.dependencies"}, mustDrupalConfig(t), func(Event) {})
 
 			if err != nil {
 				t.Fatal(err)
@@ -588,7 +599,7 @@ func TestConfiguredDependenciesUseComposerConstraints(t *testing.T) {
 	module := newTestModuleForConfig(runner, testExtensionConfig)
 	plan := InstallationPlan{ProjectPath: "/projects/store", Request: InstallationRequest{InstallationType: testExtensionConfig.Type, DrupalVersion: 11}}
 
-	_, err := module.applyStep(context.Background(), plan, InstallationStep{ID: testExtensionConfig.dependencyStepID()}, func(Event) {})
+	_, err := module.applyStep(context.Background(), plan, InstallationStep{ID: testExtensionConfig.dependencyStepID()}, mustDrupalConfig(t), func(Event) {})
 
 	if err != nil {
 		t.Fatal(err)
@@ -608,7 +619,7 @@ func TestConfiguredModulesAreEnabled(t *testing.T) {
 	module := newTestModuleForConfig(runner, testExtensionConfig)
 	plan := InstallationPlan{ProjectPath: "/projects/store", Request: InstallationRequest{InstallationType: testExtensionConfig.Type, DrupalVersion: 11}}
 
-	_, err := module.applyStep(context.Background(), plan, InstallationStep{ID: testExtensionConfig.modulesStepID()}, func(Event) {})
+	_, err := module.applyStep(context.Background(), plan, InstallationStep{ID: testExtensionConfig.modulesStepID()}, mustDrupalConfig(t), func(Event) {})
 
 	if err != nil {
 		t.Fatal(err)
@@ -628,10 +639,10 @@ func TestDrupalTwelveUsesOnlyCompatibleContribModules(t *testing.T) {
 	module := newTestModule(runner)
 	plan := InstallationPlan{ProjectPath: "/projects/site", Request: InstallationRequest{DrupalVersion: 12}}
 
-	if _, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "drupal.dependencies"}, func(Event) {}); err != nil {
+	if _, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "drupal.dependencies"}, mustDrupalConfig(t), func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "drupal.modules"}, func(Event) {}); err != nil {
+	if _, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "drupal.modules"}, mustDrupalConfig(t), func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -668,6 +679,99 @@ func TestApplyRejectsMissingApprovalBeforeMutation(t *testing.T) {
 	}
 	if len(runner.calls) != callCount {
 		t.Fatalf("Apply() ran commands before approval: %#v", runner.calls[callCount:])
+	}
+}
+
+func TestPlanBindsConfigurationAndApplyRejectsDriftBeforeMutation(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		policy InstallationConfig
+		change func(*testing.T, *installationModule)
+	}{
+		{name: "drupal", policy: testDrupalConfig, change: func(t *testing.T, _ *installationModule) {
+			directory := t.TempDir()
+			original, err := os.ReadFile(filepath.Join(configDirectory(t), "drupal.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var policy config.Drupal
+			if err := json.Unmarshal(original, &policy); err != nil {
+				t.Fatal(err)
+			}
+			policy.SiteInstall.SiteName += " changed"
+			content, err := json.Marshal(policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(directory, "drupal.json"), content, 0644); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("DROPKIT_MODULE_CONFIG_DIR", directory)
+		}},
+		{name: "commerce", policy: testExtensionConfig, change: func(_ *testing.T, module *installationModule) {
+			module.config.ComposerPackages = []string{"drupal/changed"}
+		}},
+		{name: "cms", policy: testCMSConfig, change: func(_ *testing.T, module *installationModule) { module.config.ProjectTemplate = "drupal/changed" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &scriptedRunner{paths: installedTools()}
+			module := newTestModuleForConfig(runner, test.policy)
+			request := testRequest(t.TempDir())
+			request.InstallationType = test.policy.Type
+			if test.policy.FixedDrupalVersion != 0 {
+				request.DrupalVersion = test.policy.FixedDrupalVersion
+			}
+			plan, err := module.Plan(context.Background(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.ConfigurationHash == "" {
+				t.Fatal("plan omitted configuration hash")
+			}
+			callCount := len(runner.calls)
+			test.change(t, module)
+			result, err := module.Apply(context.Background(), plan, approvePlan(plan), nil)
+			if err == nil || result.Failure == nil || result.Failure.Code != "plan_stale" {
+				t.Fatalf("Apply() = %#v, %v", result, err)
+			}
+			if len(runner.calls) != callCount {
+				t.Fatalf("Apply() inspected or mutated before config check: %#v", runner.calls[callCount:])
+			}
+		})
+	}
+}
+
+func configDirectory(t *testing.T) string {
+	t.Helper()
+	return filepath.Join("..", "..", "module_config")
+}
+
+func TestSavedPlanRejectsOldSchemaAndMissingConfigurationHash(t *testing.T) {
+	module := newTestModule(&scriptedRunner{paths: installedTools()})
+	plan, err := module.Plan(context.Background(), testRequest(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		change func(*InstallationPlan)
+	}{
+		{name: "old schema", change: func(plan *InstallationPlan) { plan.SchemaVersion = "7" }},
+		{name: "missing fingerprint", change: func(plan *InstallationPlan) { plan.ConfigurationHash = "" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			altered := plan
+			test.change(&altered)
+			altered.Digest, err = planDigest(altered)
+			if err != nil {
+				t.Fatal(err)
+			}
+			altered.PlanID = altered.Digest[:12]
+			result, err := module.Apply(context.Background(), altered, approvePlan(altered), nil)
+			if err == nil || result.Failure == nil || result.Failure.Code != "invalid_plan" {
+				t.Fatalf("Apply() = %#v, %v", result, err)
+			}
+		})
 	}
 }
 
@@ -954,7 +1058,7 @@ func TestApplyStepUsesPasswordEnvironmentAndRedactsSecret(t *testing.T) {
 	}
 	var events []Event
 
-	_, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "drupal.site"}, func(event Event) {
+	_, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "drupal.site"}, mustDrupalConfig(t), func(event Event) {
 		events = append(events, event)
 	})
 
@@ -972,7 +1076,7 @@ func TestApplyStepUsesPasswordEnvironmentAndRedactsSecret(t *testing.T) {
 	runner.onRun = func(CommandRequest) CommandResult {
 		return CommandResult{Output: "password=highly-secret"}
 	}
-	_, err = module.applyStep(context.Background(), plan, InstallationStep{ID: "ddev.start"}, func(event Event) {
+	_, err = module.applyStep(context.Background(), plan, InstallationStep{ID: "ddev.start"}, mustDrupalConfig(t), func(event Event) {
 		events = append(events, event)
 	})
 	if err != nil {
@@ -990,7 +1094,7 @@ func TestApplyStepRequiresNonEmptyPasswordEnvironment(t *testing.T) {
 	module := newTestModule(runner)
 	plan := InstallationPlan{Request: InstallationRequest{AdminPasswordEnv: environmentName}}
 
-	_, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "drupal.site"}, func(Event) {})
+	_, err := module.applyStep(context.Background(), plan, InstallationStep{ID: "drupal.site"}, mustDrupalConfig(t), func(Event) {})
 
 	if err == nil || !strings.Contains(err.Error(), environmentName) || len(runner.calls) != 0 {
 		t.Fatalf("applyStep() error = %v, calls = %#v", err, runner.calls)

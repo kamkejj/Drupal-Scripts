@@ -27,7 +27,7 @@ var configIndicatorYML string
 var configSettingsYML string
 
 const (
-	installationSchemaVersion = "7"
+	installationSchemaVersion = "8"
 	defaultDrupalVersion      = 11
 	minimumDrupalVersion      = 8
 	maximumDrupalVersion      = 12
@@ -131,6 +131,7 @@ type InstallationPlan struct {
 	Request           InstallationRequest   `json:"request"`
 	ProjectPath       string                `json:"project_path"`
 	Inspection        HostInspection        `json:"inspection"`
+	ConfigurationHash string                `json:"configuration_hash"`
 	Steps             []InstallationStep    `json:"steps"`
 	RequiredApprovals []Effect              `json:"required_approvals,omitempty"`
 	Blocked           bool                  `json:"blocked"`
@@ -294,15 +295,20 @@ func (module *installationModule) Plan(ctx context.Context, request Installation
 	if err != nil {
 		return InstallationPlan{}, err
 	}
+	_, configurationHash, err := module.configurationSnapshot()
+	if err != nil {
+		return InstallationPlan{}, err
+	}
 	inspection, err := module.inspect(ctx, normalized, projectPath)
 	if err != nil {
 		return InstallationPlan{}, err
 	}
 	plan := InstallationPlan{
-		SchemaVersion: installationSchemaVersion,
-		Request:       normalized,
-		ProjectPath:   projectPath,
-		Inspection:    inspection,
+		SchemaVersion:     installationSchemaVersion,
+		Request:           normalized,
+		ProjectPath:       projectPath,
+		Inspection:        inspection,
+		ConfigurationHash: configurationHash,
 	}
 	plan.Steps = module.buildSteps(normalized, inspection)
 	approvals := map[Effect]bool{}
@@ -561,6 +567,17 @@ func (module *installationModule) Apply(ctx context.Context, plan InstallationPl
 			return result, failure
 		}
 	}
+	drupalConfig, configurationHash, err := module.configurationSnapshot()
+	if err != nil {
+		failure := failureFromError(err)
+		result.Failure = &failure
+		return result, err
+	}
+	if configurationHash != plan.ConfigurationHash {
+		failure := installationFailure("plan_stale", "", "installation configuration changed after planning", true, "create and review a new plan")
+		result.Failure = &failure
+		return result, failure
+	}
 	inspection, err := module.inspect(ctx, plan.Request, plan.ProjectPath)
 	if err != nil {
 		failure := failureFromError(err)
@@ -596,7 +613,7 @@ func (module *installationModule) Apply(ctx context.Context, plan InstallationPl
 			continue
 		}
 		emit(Event{Type: "step_started", Level: "info", StepID: step.ID, Message: step.Summary})
-		commandResult, stepErr := module.applyStep(ctx, plan, step, emit)
+		commandResult, stepErr := module.applyStep(ctx, plan, step, drupalConfig, emit)
 		if stepErr != nil {
 			failure := installationFailure("step_failed", step.ID, stepErr.Error(), step.Retry != retryManual, "create a new plan after resolving the failure")
 			if commandResult.ExitCode != 0 {
@@ -622,7 +639,7 @@ func (module *installationModule) Apply(ctx context.Context, plan InstallationPl
 	return result, nil
 }
 
-func (module *installationModule) applyStep(ctx context.Context, plan InstallationPlan, step InstallationStep, emit func(Event)) (CommandResult, error) {
+func (module *installationModule) applyStep(ctx context.Context, plan InstallationPlan, step InstallationStep, drupalConfig config.Drupal, emit func(Event)) (CommandResult, error) {
 	run := func(name string, args []string, dir string) (CommandResult, error) {
 		result := module.runner.Run(ctx, CommandRequest{Name: name, Args: args, Dir: dir})
 		if strings.TrimSpace(result.Output) != "" {
@@ -687,10 +704,6 @@ func (module *installationModule) applyStep(ctx context.Context, plan Installati
 	case "cms.launch":
 		return run("ddev", []string{"launch"}, plan.ProjectPath)
 	case "drupal.dependencies":
-		drupalConfig, err := config.LoadDrupal()
-		if err != nil {
-			return CommandResult{}, err
-		}
 		contribCommand := append([]string{"composer", "require"}, drupalConfig.Versions[drupalVersionGroup(plan.Request.DrupalVersion)].ComposerPackages...)
 		commands := [][]string{
 			{"composer", "install"},
@@ -714,17 +727,9 @@ func (module *installationModule) applyStep(ctx context.Context, plan Installati
 				return CommandResult{}, fmt.Errorf("environment variable %s is empty", plan.Request.AdminPasswordEnv)
 			}
 		}
-		drupalConfig, err := config.LoadDrupal()
-		if err != nil {
-			return CommandResult{}, err
-		}
 		args := []string{"drush", "site:install", drupalConfig.SiteInstall.Profile, "--yes", "--account-name=" + plan.Request.AdminUsername, "--account-pass=" + password, "--site-name=" + drupalConfig.SiteInstall.SiteName}
 		return run("ddev", args, plan.ProjectPath)
 	case "drupal.modules":
-		drupalConfig, err := config.LoadDrupal()
-		if err != nil {
-			return CommandResult{}, err
-		}
 		modules := drupalConfig.Versions[drupalVersionGroup(plan.Request.DrupalVersion)].EnabledModules
 		args := append([]string{"drush", "en", "-y"}, modules...)
 		return run("ddev", args, plan.ProjectPath)
@@ -760,6 +765,17 @@ func (module *installationModule) Verify(ctx context.Context, plan InstallationP
 	if failure := module.validatePlan(plan); failure != nil {
 		result.Failure = failure
 		return result, *failure
+	}
+	_, configurationHash, err := module.configurationSnapshot()
+	if err != nil {
+		failure := failureFromError(err)
+		result.Failure = &failure
+		return result, err
+	}
+	if configurationHash != plan.ConfigurationHash {
+		failure := installationFailure("plan_stale", "", "installation configuration changed after planning", true, "create and review a new plan")
+		result.Failure = &failure
+		return result, failure
 	}
 	checks := []struct {
 		id   string
@@ -867,6 +883,10 @@ func (module *installationModule) validatePlan(plan InstallationPlan) *Installat
 		failure := installationFailure("invalid_plan", "", "unsupported installation plan schema", false, "create a new plan with this Dropkit version")
 		return &failure
 	}
+	if plan.ConfigurationHash == "" {
+		failure := installationFailure("invalid_plan", "", "installation plan omits its configuration fingerprint", false, "create a new plan")
+		return &failure
+	}
 	if plan.Request.SchemaVersion != installationSchemaVersion || plan.Request.DrupalVersion < minimumDrupalVersion || plan.Request.DrupalVersion > maximumDrupalVersion {
 		failure := installationFailure("invalid_plan", "", "installation plan contains an unsupported Drupal version", false, "create a new plan with a Drupal version from 8 through 12")
 		return &failure
@@ -937,6 +957,26 @@ func packageNameWithoutConstraint(packageName string) string {
 		return packageName[:index]
 	}
 	return packageName
+}
+
+func (module *installationModule) configurationSnapshot() (config.Drupal, string, error) {
+	var drupal config.Drupal
+	if !module.config.BrowserInstaller {
+		var err error
+		drupal, err = config.LoadDrupal()
+		if err != nil {
+			return config.Drupal{}, "", installationFailure("configuration_failed", "", err.Error(), true, "restore the installation configuration and create a new plan")
+		}
+	}
+	encoded, err := json.Marshal(struct {
+		Product InstallationConfig
+		Drupal  config.Drupal
+	}{module.config, drupal})
+	if err != nil {
+		return config.Drupal{}, "", installationFailure("internal_error", "", err.Error(), false, "")
+	}
+	sum := sha256.Sum256(encoded)
+	return drupal, hex.EncodeToString(sum[:]), nil
 }
 
 func planDigest(plan InstallationPlan) (string, error) {
