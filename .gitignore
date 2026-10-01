@@ -28,6 +28,7 @@ coverage.*
 /dropkit-plan.json
 
 # Local environment and operating-system files
+.mcp.json
 .env
 .env.*
 !.env.example
