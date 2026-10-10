@@ -7,6 +7,7 @@ import (
 
 	"dropkit/internal/command/cms"
 	"dropkit/internal/command/commerce"
+	"dropkit/internal/command/delete"
 	"dropkit/internal/command/drupal"
 )
 
@@ -40,6 +41,10 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 			cms.PrintUsage(stdout)
 			return 0
 		}
+		if len(args) == 2 && args[1] == "delete" {
+			delete.PrintUsage(stdout)
+			return 0
+		}
 		fmt.Fprintf(stderr, "unknown help topic %q\n\n", args[1])
 		printUsage(stderr)
 		return 1
@@ -61,6 +66,8 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 			return 0
 		}
 		return cms.Run(args[1:], os.Stdin, stdout, stderr)
+	case "delete":
+		return delete.Run(args[1:], os.Stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n", args[0])
 		printUsage(stderr)
@@ -75,5 +82,6 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, "  install    Install a Drupal 8-12 development environment")
 	fmt.Fprintln(writer, "  commerce   Install Drupal Commerce on Drupal 10 or 11")
 	fmt.Fprintln(writer, "  cms        Install Drupal CMS and launch its setup assistant")
+	fmt.Fprintln(writer, "  delete     Delete the current directory's DDEV project without a database snapshot")
 	fmt.Fprintln(writer, "  help       Show help for a command")
 }

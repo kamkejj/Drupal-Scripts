@@ -35,6 +35,21 @@ func TestRunCLI(t *testing.T) {
 			stdoutText: "cms        Install Drupal CMS and launch its setup assistant",
 		},
 		{
+			name:       "delete in help",
+			args:       []string{"help"},
+			stdoutText: "delete     Delete the current directory's DDEV project",
+		},
+		{
+			name:       "delete help",
+			args:       []string{"delete", "--help"},
+			stdoutText: "dropkit delete [--yes]",
+		},
+		{
+			name:       "help delete",
+			args:       []string{"help", "delete"},
+			stdoutText: "ddev delete --omit-snapshot --yes",
+		},
+		{
 			name:       "short help",
 			args:       []string{"-h"},
 			stdoutText: "Usage: dropkit <command>",

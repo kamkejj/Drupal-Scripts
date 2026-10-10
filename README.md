@@ -23,6 +23,17 @@ dropkit cms       # Drupal CMS
 
 The installer asks for a project name and container runtime. Drupal CMS also requires completing setup in the browser.
 
+## Delete a DDEV project
+
+From the project's root directory (containing `.ddev/config.yaml`), run:
+
+```bash
+cd /path/to/site
+dropkit delete
+```
+
+This runs `ddev delete --omit-snapshot` for the current project: it deletes DDEV project data, including the database, **without making a database backup**. It does not delete source files. Confirm by typing `delete` at the prompt, or use `dropkit delete --yes` to explicitly approve deletion in scripts. A non-interactive invocation without `--yes` fails without deleting anything. Run `dropkit help delete` for details.
+
 ## Use without prompts
 
 Create a plan, review it, then authorize and apply it:
